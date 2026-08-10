@@ -15,10 +15,10 @@
 const { useState, useEffect } = React;
 const STATUSES = ["New","Contacted","Replied","Interested","Meeting Booked","Not Interested","Follow Up Later","Closed/Won","Closed/Lost"];
 const STATUS_COLORS = {"New":"bg-blue-100 text-blue-800","Contacted":"bg-yellow-100 text-yellow-800","Replied":"bg-purple-100 text-purple-800","Interested":"bg-green-100 text-green-800","Meeting Booked":"bg-emerald-100 text-emerald-800","Not Interested":"bg-red-100 text-red-800","Follow Up Later":"bg-orange-100 text-orange-800","Closed/Won":"bg-green-200 text-green-900","Closed/Lost":"bg-gray-200 text-gray-700"};
-const COMPANY = { name: "Zova Digital", founder: "Eytan", location: "Queens, NY" };
+const COMPANY = { name: "Zova Digital", founder: "Ethan", location: "New York City" };
 
 async function callClaude(system, userMsg, maxTokens) {
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
+  const r = await fetch("https://zova-api.vercel.app/api/claude", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: maxTokens||1000, system, messages: [{ role: "user", content: userMsg }] })
   });
@@ -40,11 +40,10 @@ async function searchBusinesses(niche, city) {
     rating: p.rating||null, reviewCount: p.userRatingCount||0,
     category: p.primaryTypeDisplayName?.text||niche,
     website: p.websiteUri||null, phone: p.nationalPhoneNumber||null,
-    hasInstagram: false, hasFacebook: false, hasLinkedIn: false,
-    websiteQuality: p.websiteUri ? "unknown" : "none",
+    hasInstagram: false, hasFacebook: false,
     notes: "", status: "New", checked: false, analysis: null,
     outreach: {}, followUpDate: null, userNotes: "",
-    contactLog: [], // [{channel, date, type: "outreach"|"followup"}]
+    contactLog: [],
     addedAt: new Date().toISOString(), searchQuery: niche+" in "+city
   }));
 }
@@ -62,13 +61,12 @@ Return: {"score":85,"pitchAngle":"hook","biggestOpportunity":"what to build","we
 async function generateOutreach(biz, channel, analysis) {
   const short = channel === "Instagram DM" || channel === "Facebook DM";
   return await callClaude(
-    "Write outreach for Eytan at Zova Digital. Sound human and local. No fake compliments. No 'I came across'.",
-    `${channel} message. ${short?"2-3 sentences.":"4-6 sentences."}
-TO: ${biz.name} (${biz.category}), ${biz.address}
-SITUATION: ${biz.website?"website is "+biz.websiteQuality:"NO WEBSITE"}, ${biz.reviewCount} reviews
-PITCH: ${analysis?.pitchAngle||"need better web presence"}
-${channel==="Email"?"First line: Subject: [subject]":""}
-Sign as Eytan from Zova Digital. Return ONLY the message.`, 500
+    "You write outreach for Eytan at Zova Digital (Queens NY web/app developer). Sound like a real local person. No fake compliments. No generic openers. Return ONLY the message.",
+    `Write a ${channel} message. Length: ${short ? "2-3 sentences max" : "4-6 sentences"}.
+Business: ${biz.name} (${biz.category}), ${biz.address}
+Situation: ${biz.website ? "website quality is " + biz.websiteQuality : "NO WEBSITE"}. ${biz.reviewCount || 0} reviews.
+Pitch: ${analysis?.pitchAngle || "needs better web presence"}
+${channel === "Email" ? "Start with: Subject: [subject]\n\n" : ""}Sign off as Eytan, Zova Digital.`, 600
   );
 }
 
@@ -151,7 +149,12 @@ function LeadModal({lead,onClose,onUpdate}) {
   const doGen=async(ch)=>{setGenFor(ch);try{onUpdate({...lead,outreach:{...lead.outreach,[ch]:await generateOutreach(lead,ch,a)}});}catch(e){alert("Failed: "+e.message);}setGenFor(null);};
   const doFu=async(ch)=>{setGenFuFor(ch);try{onUpdate({...lead,outreach:{...lead.outreach,[ch+"_fu"]:await generateFollowUp(lead,ch,lead.outreach?.[ch]||"")}});}catch(e){alert("Failed: "+e.message);}setGenFuFor(null);};
 
-  const channels=[{key:"Email",label:"Email",available:true},{key:"Instagram DM",label:"Instagram DM",available:lead.hasInstagram},{key:"Facebook DM",label:"Facebook DM",available:lead.hasFacebook},{key:"LinkedIn",label:"LinkedIn",available:lead.hasLinkedIn},{key:"Website Form",label:"Website Form",available:!!lead.website}];
+  const channels=[
+    {key:"Email",label:"Email",available:true},
+    {key:"Instagram DM",label:"Instagram DM",available:true},
+    {key:"Facebook DM",label:"Facebook DM",available:true},
+    {key:"Website Form",label:"Website Form",available:!!lead.website},
+  ];
 
   const upsell=[
     {num:1,name:"Website",tag:"Start here",price:"$1,000-$2,500",monthly:null,desc:"Custom site from scratch. Mobile-ready, fast, professional.",when:"Pitch on first contact.",hot:!lead.website||lead.websiteQuality==="none"||lead.websiteQuality==="poor"},
