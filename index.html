@@ -44,6 +44,7 @@ async function searchBusinesses(niche, city) {
     websiteQuality: p.websiteUri ? "unknown" : "none",
     notes: "", status: "New", checked: false, analysis: null,
     outreach: {}, followUpDate: null, userNotes: "",
+    contactLog: [], // [{channel, date, type: "outreach"|"followup"}]
     addedAt: new Date().toISOString(), searchQuery: niche+" in "+city
   }));
 }
@@ -200,11 +201,54 @@ function LeadModal({lead,onClose,onUpdate}) {
           </div>
         </>}
         {tab==="outreach" && <>
-          <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500">Messages as Eytan from Zova Digital. Review before sending.</div>
+          <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500">Messages as Eytan from Zova Digital. Review before sending. Mark as sent after you send.</div>
           {!a&&<div className="bg-yellow-50 border border-yellow-100 rounded-xl p-3 text-sm text-yellow-800">Run AI analysis first for better outreach.</div>}
+
+          {/* Contact sequence tracker */}
+          {(lead.contactLog||[]).length > 0 && (
+            <div className="bg-white border border-gray-100 rounded-xl p-3">
+              <div className="text-xs font-semibold text-gray-400 mb-2">Contact History</div>
+              {(lead.contactLog||[]).map((log,i) => (
+                <div key={i} className="flex items-center gap-2 text-xs py-1.5 border-b border-gray-50 last:border-0">
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${log.type==="outreach"?"bg-blue-400":"bg-orange-400"}`}></div>
+                  <span className="font-semibold text-gray-700">{log.channel}</span>
+                  <span className="text-gray-400">{log.type==="outreach"?"First message":"Follow-up"}</span>
+                  <span className="text-gray-300 ml-auto">{log.date}</span>
+                </div>
+              ))}
+              {/* Next step recommendation */}
+              {(() => {
+                const contacted = (lead.contactLog||[]).map(l=>l.channel);
+                const allChannels = ["Instagram DM","Email","Facebook DM","Website Form","LinkedIn"];
+                const next = allChannels.find(c => !contacted.includes(c) && (c==="Instagram DM"?lead.hasInstagram:c==="Facebook DM"?lead.hasFacebook:c==="LinkedIn"?lead.hasLinkedIn:c==="Website Form"?!!lead.website:true));
+                return next ? (
+                  <div className="mt-2 text-xs text-blue-600 font-semibold">Next: Try {next} if no reply in 5-7 days</div>
+                ) : null;
+              })()}
+            </div>
+          )}
+
           {channels.map(ch=><div key={ch.key} className={`border rounded-xl p-3 ${!ch.available?"opacity-50":"border-gray-100"}`}>
-            <div className="flex items-center justify-between mb-2"><span className="text-sm font-bold">{ch.label}</span>{a?.bestChannel===ch.key&&<span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">Best</span>}</div>
-            {lead.outreach?.[ch.key] ? <div className="space-y-2"><div className="bg-white border border-gray-100 rounded-lg p-3 text-sm whitespace-pre-wrap leading-relaxed">{lead.outreach[ch.key]}</div><div className="flex gap-2"><CopyBtn text={lead.outreach[ch.key]}/><button onClick={()=>doGen(ch.key)} disabled={!!genFor} className="text-xs text-blue-600 hover:underline disabled:opacity-50">Regenerate</button></div></div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-bold">{ch.label}</span>
+              <div className="flex items-center gap-2">
+                {a?.bestChannel===ch.key&&<span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">Best</span>}
+                {(lead.contactLog||[]).some(l=>l.channel===ch.key) && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">Sent</span>}
+              </div>
+            </div>
+            {lead.outreach?.[ch.key] ? <div className="space-y-2">
+              <div className="bg-white border border-gray-100 rounded-lg p-3 text-sm whitespace-pre-wrap leading-relaxed">{lead.outreach[ch.key]}</div>
+              <div className="flex gap-2 flex-wrap">
+                <CopyBtn text={lead.outreach[ch.key]}/>
+                <button onClick={()=>doGen(ch.key)} disabled={!!genFor} className="text-xs text-blue-600 hover:underline disabled:opacity-50">Regenerate</button>
+                {!(lead.contactLog||[]).some(l=>l.channel===ch.key&&l.type==="outreach") && (
+                  <button onClick={()=>{
+                    const log = [...(lead.contactLog||[]), {channel:ch.key, date:new Date().toLocaleDateString(), type:"outreach"}];
+                    onUpdate({...lead, contactLog:log, status:"Contacted", followUpDate: new Date(Date.now()+6*24*60*60*1000).toISOString().slice(0,10)});
+                  }} className="text-xs bg-black text-white px-3 py-1.5 rounded-lg font-semibold">Mark as Sent</button>
+                )}
+              </div>
+            </div>
             : <button onClick={()=>doGen(ch.key)} disabled={!!genFor||!ch.available} className="w-full border border-dashed border-gray-200 hover:bg-gray-50 py-2.5 rounded-lg text-sm text-gray-500 disabled:opacity-40">{genFor===ch.key?"Writing...":`Generate ${ch.label} Message`}</button>}
           </div>)}
         </>}
@@ -213,7 +257,14 @@ function LeadModal({lead,onClose,onUpdate}) {
           {channels.filter(ch=>ch.available&&lead.outreach?.[ch.key]).map(ch=><div key={ch.key} className="border border-gray-100 rounded-xl p-3 space-y-2">
             <div className="text-sm font-bold">{ch.label} Follow-Up</div>
             <div className="bg-gray-50 rounded-lg p-2 text-xs text-gray-500 italic line-clamp-2">{lead.outreach[ch.key]}</div>
-            {lead.outreach?.[ch.key+"_fu"] ? <div className="space-y-2"><div className="bg-white border border-gray-100 rounded-lg p-3 text-sm whitespace-pre-wrap">{lead.outreach[ch.key+"_fu"]}</div><div className="flex gap-2"><CopyBtn text={lead.outreach[ch.key+"_fu"]}/><button onClick={()=>doFu(ch.key)} disabled={!!genFuFor} className="text-xs text-blue-600 hover:underline disabled:opacity-50">Regenerate</button></div></div>
+            {lead.outreach?.[ch.key+"_fu"] ? <div className="space-y-2"><div className="bg-white border border-gray-100 rounded-lg p-3 text-sm whitespace-pre-wrap">{lead.outreach[ch.key+"_fu"]}</div><div className="flex gap-2 flex-wrap"><CopyBtn text={lead.outreach[ch.key+"_fu"]}/><button onClick={()=>doFu(ch.key)} disabled={!!genFuFor} className="text-xs text-blue-600 hover:underline disabled:opacity-50">Regenerate</button>
+                {!(lead.contactLog||[]).some(l=>l.channel===ch.key&&l.type==="followup") && (
+                  <button onClick={()=>{
+                    const log=[...(lead.contactLog||[]),{channel:ch.key,date:new Date().toLocaleDateString(),type:"followup"}];
+                    onUpdate({...lead,contactLog:log});
+                  }} className="text-xs bg-black text-white px-3 py-1.5 rounded-lg font-semibold">Mark as Sent</button>
+                )}
+              </div></div>
             : <button onClick={()=>doFu(ch.key)} disabled={!!genFuFor} className="w-full border border-dashed border-gray-200 hover:bg-gray-50 py-2.5 rounded-lg text-sm text-gray-500 disabled:opacity-40">{genFuFor===ch.key?"Writing...":"Generate Follow-Up"}</button>}
           </div>)}
         </>}
