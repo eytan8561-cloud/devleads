@@ -140,10 +140,31 @@ function useStorage() {
   const [history, setHistory] = useState([]);
   useEffect(() => {
     try {
-      const l=localStorage.getItem("zova_v5_leads");
-      const h=localStorage.getItem("zova_v5_history");
-      if(l)setLeads(JSON.parse(l));
-      if(h)setHistory(JSON.parse(h));
+      // Migrate from all previous keys
+      const allKeys = ["zova_v5_leads","zova_v4_leads","zova_leads_v1","devleads_leads","zova_leads"];
+      let allLeads = [];
+      const seenIds = new Set();
+      for (const key of allKeys) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            for (const lead of parsed) {
+              if (!seenIds.has(lead.id)) {
+                seenIds.add(lead.id);
+                allLeads.push(lead);
+              }
+            }
+          }
+        } catch {}
+      }
+      if (allLeads.length > 0) {
+        setLeads(allLeads);
+        localStorage.setItem("zova_v5_leads", JSON.stringify(allLeads));
+      }
+
+      const h = localStorage.getItem("zova_v5_history") || localStorage.getItem("zova_v4_history") || localStorage.getItem("zova_history_v1");
+      if (h) setHistory(JSON.parse(h));
     } catch {}
     requestNotifications();
   }, []);
