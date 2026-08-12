@@ -13,22 +13,33 @@
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useEffect } = React;
-
-// Request notification permission on load
-function requestNotifications() {
-  if ("Notification" in window && Notification.permission === "default") {
-    Notification.requestPermission();
-  }
-}
-
-function sendNotification(title, body) {
-  if ("Notification" in window && Notification.permission === "granted") {
-    new Notification(title, { body, icon: "/favicon.ico" });
-  }
-}
 const STATUSES = ["New","Contacted","Replied","Interested","Meeting Booked","Not Interested","Follow Up Later","Closed/Won","Closed/Lost"];
 const STATUS_COLORS = {"New":"bg-blue-100 text-blue-800","Contacted":"bg-yellow-100 text-yellow-800","Replied":"bg-purple-100 text-purple-800","Interested":"bg-green-100 text-green-800","Meeting Booked":"bg-emerald-100 text-emerald-800","Not Interested":"bg-red-100 text-red-800","Follow Up Later":"bg-orange-100 text-orange-800","Closed/Won":"bg-green-200 text-green-900","Closed/Lost":"bg-gray-200 text-gray-700"};
 const COMPANY = { name: "Zova Digital", founder: "Ethan", location: "New York City" };
+
+// Call script based on business type
+function getCallScript(biz, analysis) {
+  const hasGo3 = (biz.website||"").includes("go3") || (biz.manualMissing||[]).includes("Go3 Template Site");
+  const noWebsite = !biz.website || biz.websiteQuality === "none";
+  const opportunity = analysis?.pitchAngle || "better web presence";
+
+  return {
+    opener: `"Hi, is this ${biz.name}? Hey, my name is Ethan — I'm a web developer based in New York City. I'm not trying to sell you anything right now, I just had a quick question — do you have like 30 seconds?"`,
+    hook: noWebsite
+      ? `"So I was actually looking for [their type] places in your area online, and I noticed you guys don't have a website yet. I build sites specifically for local businesses like yours, and I've seen places go from basically invisible online to booking out weeks in advance. I'd love to show you what that could look like for ${biz.name}."`
+      : hasGo3
+      ? `"So I checked out your website — looks like it's on Go3, right? I actually specialize in rebuilding those into proper custom sites with real online booking and way better Google visibility. I'd love to show you the difference."`
+      : `"So I checked out ${biz.name} online — ${opportunity}. I build custom websites and apps for local businesses and I think I could genuinely help. Would you be open to a quick 10-minute call this week to see what that could look like?"`,
+    objections: [
+      { q: "We already have a website", a: `"That's great — honestly most of the businesses I work with have one, it just isn't doing much for them. Is it bringing in new clients or mainly just sitting there? I could take a quick look and tell you if there's anything I'd actually change."` },
+      { q: "We're not interested", a: `"Totally fair — can I ask, is it more about timing or budget? I work with a lot of small businesses so I try to be flexible. If it's not the right time I can follow up in a few months, no pressure at all."` },
+      { q: "Who are you again?", a: `"My name's Ethan, I run Zova Digital — we build websites and apps for local businesses in New York. I actually work with a few spots in your area already. I'm not cold calling everyone, I specifically reached out because I noticed something with ${biz.name}'s online presence."` },
+      { q: "How much does it cost?", a: `"It really depends on what you need — I don't have one set price because every business is different. But I'd rather show you what it looks like first and then we can talk numbers. Can I send you a quick example of what I've built?"` },
+      { q: "Call back later / busy", a: `"Of course — when's a better time? I can call you back today or tomorrow, whatever works for you."` },
+    ],
+    close: `"Awesome — can I send you a quick example of what I'd build for ${biz.name}? Takes 2 seconds to look at and then you'll know if it's worth a conversation. What's the best email or number to send it to?"`,
+  };
+}
 
 async function callClaude(system, userMsg, maxTokens) {
   const r = await fetch("https://zova-api.vercel.app/api/claude", {
@@ -54,37 +65,49 @@ async function searchBusinesses(niche, city) {
     category: p.primaryTypeDisplayName?.text||niche,
     website: p.websiteUri||null, phone: p.nationalPhoneNumber||null,
     hasInstagram: false, hasFacebook: false,
+    websiteQuality: p.websiteUri ? "unknown" : "none",
+    isGo3: p.websiteUri ? p.websiteUri.includes("go3") : false,
     notes: "", status: "New", checked: false, analysis: null,
-    outreach: {}, followUpDate: null, userNotes: "",
-    contactLog: [],
+    outreach: {}, followUpDate: null, emailReminderDate: null,
+    userNotes: "", contactLog: [], manualWebsite: null,
+    manualInstagram: null, manualMissing: [],
     addedAt: new Date().toISOString(), searchQuery: niche+" in "+city
   }));
 }
 
 async function analyzeLead(biz) {
+  const isGo3 = biz.isGo3 || (biz.website||"").includes("go3") || (biz.manualMissing||[]).includes("Go3 Template Site");
   const text = await callClaude(
     "Lead analyst for Zova Digital, a web/iOS app dev in New York City. Return ONLY raw JSON, no markdown.",
-    `Analyze: ${biz.name} (${biz.category}), Rating: ${biz.rating}, Reviews: ${biz.reviewCount}, Website: ${biz.website||"NONE"} (${biz.websiteQuality})
-Return JSON: {"score":85,"pitchAngle":"one sharp specific sentence about the biggest opportunity for THIS business","biggestOpportunity":"one specific thing to build for them","websiteOpp":"High","appOpp":"Medium","appIdea":"specific app idea or null","aiAutomation":"specific AI automation opportunity for this exact business type","aiPitch":"one sentence pitch for the AI automation","competitorAngle":"what nearby competitors have that they lack","problems":["specific problem 1","specific problem 2"],"bestChannel":"Instagram","backupChannel":"Email","channelSequence":["specific step 1","specific step 2"],"summary":"2 honest sentences about this lead"}`,
-    1100
+    `Analyze as web/app development prospect:
+Name: ${biz.name}, Type: ${biz.category}
+Rating: ${biz.rating} stars, ${biz.reviewCount} reviews
+Website: ${biz.website||"NONE"} (quality: ${biz.manualWebsite||biz.websiteQuality})
+Instagram: ${biz.manualInstagram||"unknown"}
+Missing: ${(biz.manualMissing||[]).join(", ")||"unknown"}
+${isGo3 ? "IMPORTANT: Their site is built on Go3 Technology — a basic NYC local business template. Easy upgrade pitch." : ""}
+
+Return JSON:
+{"score":85,"pitchAngle":"one sharp specific sentence for this business","biggestOpportunity":"specific deliverable","websiteOpp":"High","appOpp":"Medium","appIdea":"specific idea or null","aiAutomation":"specific AI automation for this business type","aiPitch":"one sentence AI pitch","isGo3Site":${isGo3},"go3Pitch":"${isGo3 ? "specific Go3 upgrade pitch" : "null"}","competitorAngle":"what competitors have","problems":["problem 1","problem 2"],"bestChannel":"Instagram","backupChannel":"Email","summary":"2 honest sentences"}`,
+    1200
   );
   return JSON.parse(text.match(/\{[\s\S]*\}/)[0]);
 }
 
-async function generateOutreach(biz, channel, analysis, manual) {
+async function generateOutreach(biz, channel, analysis, lead) {
   const short = channel === "Instagram DM" || channel === "Facebook DM";
-  const websiteStatus = manual?.manualWebsite || (biz.website ? biz.websiteQuality : "none");
-  const igStatus = manual?.manualInstagram || "unknown";
-  const missing = manual?.manualMissing?.length ? manual.manualMissing.join(", ") : analysis?.biggestOpportunity || "better web presence";
+  const isGo3 = biz.isGo3 || (biz.website||"").includes("go3") || (lead.manualMissing||[]).includes("Go3 Template Site");
+  const websiteStatus = lead.manualWebsite || (biz.website ? biz.websiteQuality : "none");
+  const missing = (lead.manualMissing||[]).filter(m => m !== "Go3 Template Site").join(", ") || analysis?.biggestOpportunity || "better web presence";
   return await callClaude(
-    "You write outreach for Ethan at Zova Digital (New York City web/app developer). Sound like a real local person. No fake compliments. No generic openers. Return ONLY the message.",
+    "You write outreach for Ethan at Zova Digital (NYC web/app developer). Sound like a real local person. No fake compliments. No generic openers. Return ONLY the message.",
     `Write a ${channel} message. Length: ${short ? "2-3 sentences max" : "4-6 sentences"}.
 Business: ${biz.name} (${biz.category}), ${biz.address}
-Website (I checked): ${websiteStatus}
-Instagram (I checked): ${igStatus}
-What they are missing: ${missing}
-AI automation opportunity: ${analysis?.aiAutomation || "not identified"}
-Pitch angle: ${analysis?.pitchAngle || "needs better web presence"}
+Website (checked): ${isGo3 ? "Go3 Technology template site — basic and outdated" : websiteStatus}
+Instagram (checked): ${lead.manualInstagram||"unknown"}
+Missing: ${missing}
+AI opportunity: ${analysis?.aiAutomation||"not identified"}
+Pitch: ${isGo3 ? analysis?.go3Pitch || analysis?.pitchAngle : analysis?.pitchAngle||"needs better web presence"}
 ${channel === "Email" ? "Start with: Subject: [subject]\n\n" : ""}Sign off as Ethan, Zova Digital.`, 600
   );
 }
@@ -92,24 +115,37 @@ ${channel === "Email" ? "Start with: Subject: [subject]\n\n" : ""}Sign off as Et
 async function generateFollowUp(biz, channel, prev) {
   return await callClaude(
     "Write a follow-up for Ethan at Zova Digital. 1-3 sentences. Human, not desperate.",
-    `Follow-up ${channel}. Business: ${biz.name}. Previous: "${prev}". Sign as Ethan from Zova Digital. Return ONLY the message.`, 250
+    `Follow-up ${channel}. Business: ${biz.name}. Previous: "${prev.slice(0,200)}". Sign as Ethan, Zova Digital. Return ONLY the message.`, 250
   );
 }
 
 async function getIdeas(history) {
   const text = await callClaude(
     "Suggest NYC local business searches for a web/app developer. Return ONLY a JSON array of strings.",
-    `Already searched: ${history.length?history.join(", "):"nothing"}. Suggest 12 fresh NYC searches. Return JSON array like: ["Nail salons in Flushing NY"]`, 600
+    `Already searched: ${history.length?history.join(", "):"nothing"}. Suggest 12 fresh NYC searches avoiding repeats. Return JSON array.`, 600
   );
   const m = text.match(/\[[\s\S]*\]/);
   return m ? JSON.parse(m[0]) : [];
+}
+
+function requestNotifications() {
+  if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
+}
+function sendNotification(title, body) {
+  if ("Notification" in window && Notification.permission === "granted") new Notification(title, { body });
 }
 
 function useStorage() {
   const [leads, setLeads] = useState([]);
   const [history, setHistory] = useState([]);
   useEffect(() => {
-    try { const l=localStorage.getItem("zova_v5_leads"); const h=localStorage.getItem("zova_v5_history"); if(l)setLeads(JSON.parse(l)); if(h)setHistory(JSON.parse(h)); } catch {}
+    try {
+      const l=localStorage.getItem("zova_v5_leads");
+      const h=localStorage.getItem("zova_v5_history");
+      if(l)setLeads(JSON.parse(l));
+      if(h)setHistory(JSON.parse(h));
+    } catch {}
+    requestNotifications();
   }, []);
   const save = (nl) => { setLeads(nl); try{localStorage.setItem("zova_v5_leads",JSON.stringify(nl));}catch{} };
   const addHistory = (q) => { const h=[q,...history.filter(x=>x!==q)].slice(0,50); setHistory(h); try{localStorage.setItem("zova_v5_history",JSON.stringify(h));}catch{} };
@@ -117,7 +153,7 @@ function useStorage() {
 }
 
 function ScoreRing({score}) {
-  const c = score>=75?"#22c55e":score>=50?"#f59e0b":"#ef4444";
+  const c=score>=75?"#22c55e":score>=50?"#f59e0b":"#ef4444";
   return <div className="flex flex-col items-center gap-0.5 flex-shrink-0">
     <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{background:`conic-gradient(${c} ${score}%, #e5e7eb ${score}%)`}}>
       <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-sm font-black" style={{color:c}}>{score}</div>
@@ -132,6 +168,7 @@ function CopyBtn({text}) {
 }
 
 function LeadCard({lead,onClick,onCheck}) {
+  const isGo3 = lead.isGo3 || (lead.website||"").includes("go3");
   return <div className="bg-white border border-gray-100 rounded-2xl p-4 hover:shadow-md transition-all">
     <div className="flex items-start gap-3">
       <input type="checkbox" checked={lead.checked||false} onChange={e=>{e.stopPropagation();onCheck(lead.id);}} className="mt-1.5 w-4 h-4 flex-shrink-0 cursor-pointer"/>
@@ -139,18 +176,19 @@ function LeadCard({lead,onClick,onCheck}) {
         <div className="flex items-center gap-2 flex-wrap mb-1">
           <span className={`font-black text-base leading-tight ${lead.checked?"line-through text-gray-400":""}`}>{lead.name}</span>
           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${STATUS_COLORS[lead.status]}`}>{lead.status}</span>
+          {isGo3 && <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-semibold">Go3</span>}
         </div>
         <div className="text-xs text-gray-400 mb-2 truncate">{lead.address}</div>
         <div className="flex items-center gap-3 text-xs flex-wrap">
           {lead.rating && <span className="text-gray-500">&#9733; {lead.rating} ({(lead.reviewCount||0).toLocaleString()})</span>}
-          <span className={`font-semibold ${!lead.website||lead.websiteQuality==="none"?"text-red-500":lead.websiteQuality==="poor"?"text-orange-500":"text-gray-400"}`}>
-            {!lead.website||lead.websiteQuality==="none"?"No website":lead.websiteQuality==="poor"?"Poor site":`Site (${lead.websiteQuality})`}
+          <span className={`font-semibold ${!lead.website||lead.websiteQuality==="none"?"text-red-500":isGo3?"text-orange-500":lead.websiteQuality==="poor"?"text-orange-400":"text-gray-400"}`}>
+            {!lead.website||lead.websiteQuality==="none"?"No website":isGo3?"Go3 template":lead.websiteQuality==="poor"?"Poor site":`Site (${lead.websiteQuality})`}
           </span>
+          {lead.emailReminderDate && new Date(lead.emailReminderDate)<=new Date() && <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-semibold">Email due</span>}
         </div>
         {lead.analysis && <div className="mt-2 text-xs bg-black text-white rounded-lg px-2 py-1.5 inline-block">{lead.analysis.pitchAngle}</div>}
-        {lead.searchQuery && <div className="mt-1 text-[10px] text-gray-300">From: {lead.searchQuery}</div>}
       </div>
-      {lead.analysis ? <ScoreRing score={lead.analysis.score}/> : <div onClick={onClick} className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center text-[10px] text-gray-400 text-center p-1 flex-shrink-0 cursor-pointer">Tap to score</div>}
+      {lead.analysis?<ScoreRing score={lead.analysis.score}/>:<div onClick={onClick} className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center text-[10px] text-gray-400 text-center p-1 flex-shrink-0 cursor-pointer">Tap to score</div>}
     </div>
   </div>;
 }
@@ -162,22 +200,31 @@ function LeadModal({lead,onClose,onUpdate}) {
   const [genFuFor,setGenFuFor]=useState(null);
   const [status,setStatus]=useState(lead.status);
   const [notes,setNotes]=useState(lead.userNotes||"");
+  const [showScript,setShowScript]=useState(null);
   const a=lead.analysis;
+  const isGo3 = lead.isGo3 || (lead.website||"").includes("go3") || (lead.manualMissing||[]).includes("Go3 Template Site");
+  const script = getCallScript(lead, a);
 
   const doAnalyze=async()=>{setAnalyzing(true);try{onUpdate({...lead,analysis:await analyzeLead(lead)});}catch(e){alert("Failed: "+e.message);}setAnalyzing(false);};
   const doGen=async(ch)=>{setGenFor(ch);try{onUpdate({...lead,outreach:{...lead.outreach,[ch]:await generateOutreach(lead,ch,a,lead)}});}catch(e){alert("Failed: "+e.message);}setGenFor(null);};
   const doFu=async(ch)=>{setGenFuFor(ch);try{onUpdate({...lead,outreach:{...lead.outreach,[ch+"_fu"]:await generateFollowUp(lead,ch,lead.outreach?.[ch]||"")}});}catch(e){alert("Failed: "+e.message);}setGenFuFor(null);};
 
+  const markSent = (ch) => {
+    const log=[...(lead.contactLog||[]),{channel:ch,date:new Date().toLocaleDateString(),type:"outreach"}];
+    const emailReminder = new Date(Date.now()+3*24*60*60*1000).toISOString().slice(0,10);
+    onUpdate({...lead,contactLog:log,status:"Contacted",emailReminderDate:emailReminder,followUpDate:emailReminder});
+  };
+
   const channels=[
-    {key:"Email",label:"Email",available:true},
     {key:"Instagram DM",label:"Instagram DM",available:true},
+    {key:"Email",label:"Email",available:true},
     {key:"Facebook DM",label:"Facebook DM",available:true},
     {key:"Website Form",label:"Website Form",available:!!lead.website},
   ];
 
   const upsell=[
-    {num:1,name:"Website",tag:"Start here",price:"$1,000-$2,500",monthly:null,desc:"Custom site from scratch. Mobile-ready, fast, professional.",when:"Pitch on first contact.",hot:!lead.website||lead.websiteQuality==="none"||lead.websiteQuality==="poor"},
-    {num:2,name:"Monthly Retainer",tag:"Easy recurring",price:null,monthly:"$75-$150/mo",desc:"Hosting, updates, menu changes. ~30 min/month of work.",when:"Bundle with website from day one.",hot:true},
+    {num:1,name:"Website",tag:"Start here",price:"$1,000-$2,500",monthly:null,desc:"Custom site from scratch. Mobile-ready, fast, professional.",when:"Pitch on first contact.",hot:!lead.website||lead.websiteQuality==="none"||lead.websiteQuality==="poor"||isGo3},
+    {num:2,name:"Monthly Retainer",tag:"Easy recurring",price:null,monthly:"$75-$150/mo",desc:"Hosting, updates, menu changes. ~30 min/month.",when:"Bundle with website from day one.",hot:true},
     {num:3,name:"AI Phone Assistant",tag:"Big upsell",price:null,monthly:"$200-$400/mo",desc:"AI answers calls, takes orders via Bland.ai or Retell AI.",when:"After 30-60 days once they trust you.",hot:(a?.score||0)>=70},
     {num:4,name:"AI Website Chatbot",tag:"Add-on",price:null,monthly:"$100-$200/mo",desc:"Chat widget answering customer questions 24/7.",when:"Pitch alongside Phase 3.",hot:false},
     {num:5,name:"Review Automation",tag:"Easy win",price:null,monthly:"$100/mo",desc:"Auto-texts customers asking for Google reviews.",when:"Great for businesses under 200 reviews.",hot:(lead.reviewCount||0)<200},
@@ -187,7 +234,10 @@ function LeadModal({lead,onClose,onUpdate}) {
     <div className="bg-white w-full sm:max-w-2xl sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[93vh] flex flex-col">
       <div className="p-4 border-b border-gray-100 flex items-start justify-between gap-2 flex-shrink-0">
         <div className="flex-1 min-w-0">
-          <h2 className="font-black text-lg leading-tight">{lead.name}</h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="font-black text-lg leading-tight">{lead.name}</h2>
+            {isGo3 && <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-semibold">Go3 Site</span>}
+          </div>
           <p className="text-xs text-gray-400 truncate">{lead.address}</p>
           {lead.website && <a href={lead.website} target="_blank" rel="noreferrer" className="text-xs text-blue-500 hover:underline truncate block mt-0.5">{lead.website}</a>}
         </div>
@@ -196,38 +246,64 @@ function LeadModal({lead,onClose,onUpdate}) {
           <button onClick={onClose} className="text-gray-400 text-2xl leading-none ml-1">x</button>
         </div>
       </div>
-      <div className="flex border-b border-gray-100 overflow-x-auto flex-shrink-0">
-        {["overview","outreach","follow-up","upsell","notes"].map(t => <button key={t} onClick={()=>setTab(t)} className={`px-4 py-3 text-sm font-semibold capitalize whitespace-nowrap ${tab===t?"border-b-2 border-black text-black":"text-gray-400"}`}>{t}</button>)}
-      </div>
-      <div className="overflow-y-auto flex-1 p-4 space-y-3">
-        {tab==="overview" && <>
-          <div className="grid grid-cols-2 gap-2">
-            {[["Rating",lead.rating?lead.rating+" stars":"None"],["Reviews",(lead.reviewCount||0).toLocaleString()],["Type",lead.category],["Website",lead.website?lead.websiteQuality:"None"]].map(([l,v])=><div key={l} className="bg-gray-50 rounded-xl p-3"><div className="text-xs text-gray-400 mb-0.5">{l}</div><div className="font-bold text-sm capitalize truncate">{v}</div></div>)}
-          </div>
-          {lead.phone && <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-sm"><span className="font-semibold text-red-600">Phone (NOT for outreach):</span> {lead.phone}</div>}
 
+      <div className="flex border-b border-gray-100 overflow-x-auto flex-shrink-0">
+        {["overview","outreach","call","follow-up","upsell","notes"].map(t=><button key={t} onClick={()=>setTab(t)} className={`px-3 py-3 text-sm font-semibold capitalize whitespace-nowrap ${tab===t?"border-b-2 border-black text-black":"text-gray-400"}`}>{t==="call"?"Call Script":t}</button>)}
+      </div>
+
+      <div className="overflow-y-auto flex-1 p-4 space-y-3">
+
+        {tab==="overview" && <>
           {/* Quick Links */}
           <div className="bg-white border border-gray-100 rounded-xl p-3">
             <div className="text-xs font-semibold text-gray-400 mb-2">Quick Links</div>
             <div className="flex flex-wrap gap-2">
-              {lead.website && <a href={lead.website} target="_blank" rel="noreferrer" className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg font-semibold">🌐 Website</a>}
-              <a href={`https://www.instagram.com/${encodeURIComponent(lead.name.toLowerCase().replace(/\s+/g,"").replace(/[^a-z0-9._]/g,""))}`} target="_blank" rel="noreferrer" className="text-xs bg-pink-50 hover:bg-pink-100 text-pink-700 px-3 py-1.5 rounded-lg font-semibold">📸 Instagram</a>
-              <a href={`https://www.google.com/search?q=${encodeURIComponent(lead.name + " instagram")}`} target="_blank" rel="noreferrer" className="text-xs bg-pink-100 hover:bg-pink-200 text-pink-800 px-3 py-1.5 rounded-lg font-semibold">📸 Find IG via Google</a>
-              <a href={`https://www.facebook.com/search/top?q=${encodeURIComponent(lead.name)}`} target="_blank" rel="noreferrer" className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg font-semibold">👤 Find on Facebook</a>
-              <a href={`https://www.google.com/search?q=${encodeURIComponent(lead.name + " " + lead.address)}`} target="_blank" rel="noreferrer" className="text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-lg font-semibold">🔍 Google</a>
-              <a href={`https://maps.google.com/search?q=${encodeURIComponent(lead.name + " " + lead.address)}`} target="_blank" rel="noreferrer" className="text-xs bg-yellow-50 hover:bg-yellow-100 text-yellow-700 px-3 py-1.5 rounded-lg font-semibold">📍 Maps</a>
+              {lead.website && <a href={lead.website} target="_blank" rel="noreferrer" className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg font-semibold">Website</a>}
+              <a href={`https://www.google.com/search?q=${encodeURIComponent(lead.name+" instagram")}`} target="_blank" rel="noreferrer" className="text-xs bg-pink-50 hover:bg-pink-100 text-pink-700 px-3 py-1.5 rounded-lg font-semibold">Find on Instagram</a>
+              <a href={`https://www.facebook.com/search/top?q=${encodeURIComponent(lead.name)}`} target="_blank" rel="noreferrer" className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg font-semibold">Facebook</a>
+              <a href={`https://www.google.com/search?q=${encodeURIComponent(lead.name+" "+lead.address)}`} target="_blank" rel="noreferrer" className="text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-lg font-semibold">Google</a>
+              {lead.phone && <a href={`tel:${lead.phone}`} className="text-xs bg-purple-50 hover:bg-purple-100 text-purple-700 px-3 py-1.5 rounded-lg font-semibold">Call {lead.phone}</a>}
             </div>
           </div>
-          {!a ? <button onClick={doAnalyze} disabled={analyzing} className="w-full bg-black text-white py-3 rounded-xl font-bold text-sm disabled:opacity-50">{analyzing?"Analyzing...":"Analyze This Lead with AI"}</button>
-          : <>
+
+          <div className="grid grid-cols-2 gap-2">
+            {[["Rating",lead.rating?lead.rating+" stars":"None"],["Reviews",(lead.reviewCount||0).toLocaleString()],["Type",lead.category],["Website",isGo3?"Go3 Template":lead.website?lead.websiteQuality:"None"]].map(([l,v])=><div key={l} className="bg-gray-50 rounded-xl p-3"><div className="text-xs text-gray-400 mb-0.5">{l}</div><div className={`font-bold text-sm capitalize truncate ${isGo3&&l==="Website"?"text-red-600":""}`}>{v}</div></div>)}
+          </div>
+
+          {lead.emailReminderDate && <div className={`rounded-xl p-3 border ${new Date(lead.emailReminderDate)<=new Date()?"bg-yellow-50 border-yellow-200":"bg-blue-50 border-blue-100"}`}>
+            <div className="text-xs font-semibold mb-0.5">{new Date(lead.emailReminderDate)<=new Date()?"Email overdue!":"Email reminder"}</div>
+            <div className="text-sm">Send email on {lead.emailReminderDate}</div>
+          </div>}
+
+          {/* Manual observations */}
+          <div className="bg-white border border-gray-200 rounded-xl p-3">
+            <div className="text-xs font-semibold text-gray-500 mb-2">What I Actually See</div>
+            <div className="space-y-2">
+              <div>
+                <div className="text-xs text-gray-400 mb-1">Website Quality</div>
+                <div className="flex gap-2 flex-wrap">{["None","Go3 Site","Bad","Basic","Decent","Good"].map(o=><button key={o} onClick={()=>onUpdate({...lead,manualWebsite:o,isGo3:o==="Go3 Site"})} className={`text-xs px-3 py-1.5 rounded-full border font-semibold ${(lead.manualWebsite===o||(o==="Go3 Site"&&lead.isGo3&&!lead.manualWebsite))?"bg-black text-white border-black":"border-gray-200 text-gray-600"}`}>{o}</button>)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-400 mb-1">Instagram</div>
+                <div className="flex gap-2 flex-wrap">{["None","Inactive","Active","Very Active"].map(o=><button key={o} onClick={()=>onUpdate({...lead,manualInstagram:o})} className={`text-xs px-3 py-1.5 rounded-full border font-semibold ${lead.manualInstagram===o?"bg-black text-white border-black":"border-gray-200 text-gray-600"}`}>{o}</button>)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-400 mb-1">Missing</div>
+                <div className="flex gap-2 flex-wrap">{["Online Booking","Online Ordering","Chat Widget","Loyalty App","Review System","Good Design","Mobile Friendly"].map(o=><button key={o} onClick={()=>{const c=lead.manualMissing||[];const u=c.includes(o)?c.filter(x=>x!==o):[...c,o];onUpdate({...lead,manualMissing:u});}} className={`text-xs px-3 py-1.5 rounded-full border font-semibold ${(lead.manualMissing||[]).includes(o)?"bg-black text-white border-black":"border-gray-200 text-gray-600"}`}>{o}</button>)}</div>
+              </div>
+            </div>
+          </div>
+
+          {!a?<button onClick={doAnalyze} disabled={analyzing} className="w-full bg-black text-white py-3 rounded-xl font-bold text-sm disabled:opacity-50">{analyzing?"Analyzing...":"Analyze This Lead with AI"}</button>
+          :<>
             <div className="bg-black text-white rounded-xl p-3"><div className="text-xs text-gray-400 mb-1">Pitch Angle</div><div className="text-sm font-semibold">{a.pitchAngle}</div></div>
+            {isGo3&&a.go3Pitch&&<div className="bg-red-50 border border-red-200 rounded-xl p-3"><div className="text-xs font-semibold text-red-600 mb-1">Go3 Upgrade Pitch</div><div className="text-sm">{a.go3Pitch}</div></div>}
             <div className="grid grid-cols-2 gap-2">
               <div className={`rounded-xl p-3 border ${a.websiteOpp==="High"?"bg-emerald-50 border-emerald-200":"bg-gray-50 border-gray-100"}`}><div className="text-xs text-gray-400">Website Opp</div><div className="font-black text-lg">{a.websiteOpp}</div>{a.biggestOpportunity&&<div className="text-xs text-gray-500 mt-1">{a.biggestOpportunity}</div>}</div>
               <div className={`rounded-xl p-3 border ${a.appOpp==="High"?"bg-emerald-50 border-emerald-200":"bg-gray-50 border-gray-100"}`}><div className="text-xs text-gray-400">App Opp</div><div className="font-black text-lg">{a.appOpp}</div>{a.appIdea&&<div className="text-xs text-gray-500 mt-1">{a.appIdea}</div>}</div>
             </div>
-            {a.competitorAngle&&<div className="bg-orange-50 border border-orange-100 rounded-xl p-3"><div className="text-xs font-semibold text-orange-600 mb-1">Competitor Angle</div><div className="text-sm">{a.competitorAngle}</div></div>}
-            {a.aiAutomation&&<div className="bg-purple-50 border border-purple-200 rounded-xl p-3"><div className="text-xs font-semibold text-purple-600 mb-1">🤖 AI Automation Opportunity</div><div className="text-sm font-semibold mb-1">{a.aiAutomation}</div><div className="text-xs text-purple-700 italic">"{a.aiPitch}"</div></div>}
-            {a.channelSequence&&<div className="bg-blue-50 border border-blue-100 rounded-xl p-3"><div className="text-xs font-semibold text-blue-600 mb-1">Contact Sequence</div>{a.channelSequence.map((s,i)=><div key={i} className="text-sm flex gap-2 mt-1"><span className="text-blue-400 font-bold">{i+1}.</span>{s}</div>)}</div>}
+            {a.aiAutomation&&<div className="bg-purple-50 border border-purple-200 rounded-xl p-3"><div className="text-xs font-semibold text-purple-600 mb-1">AI Automation Opportunity</div><div className="text-sm font-semibold mb-1">{a.aiAutomation}</div>{a.aiPitch&&<div className="text-xs text-purple-700 italic">"{a.aiPitch}"</div>}</div>}
+            {a.competitorAngle&&<div className="bg-orange-50 border border-orange-100 rounded-xl p-3"><div className="text-xs font-semibold text-orange-600 mb-1">Competitor Angle</div><div className="text-sm">{a.competitorAngle}</div>}</div>}
             <div className="space-y-1">{a.problems?.map((p,i)=><div key={i} className="text-sm text-red-700 flex gap-2"><span>!</span><span>{p}</span></div>)}</div>
             <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-600">{a.summary}</div>
             <button onClick={doAnalyze} disabled={analyzing} className="text-xs text-gray-400 hover:text-gray-600 underline">Re-analyze</button>
@@ -236,126 +312,116 @@ function LeadModal({lead,onClose,onUpdate}) {
             <select value={status} onChange={e=>setStatus(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">{STATUSES.map(s=><option key={s}>{s}</option>)}</select>
           </div>
         </>}
+
         {tab==="outreach" && <>
-          {/* Send sequence guide */}
-          {a && (
-            <div className="bg-black text-white rounded-xl p-3">
-              <div className="text-xs text-gray-400 mb-2 font-semibold">Your Send Sequence</div>
-              {[
-                {step:1, channel:"Instagram DM", when:"Send today"},
-                {step:2, channel:"Email", when:"If no reply in 5-7 days"},
-                {step:3, channel:"Facebook DM", when:"If still no reply after 10-14 days"},
-                {step:4, channel:"Website Form", when:"Last attempt if they have a site"},
-              ].map(s=>(
-                <div key={s.step} className="flex items-center gap-2 mt-1.5">
-                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black flex-shrink-0 ${s.step===1?"bg-green-400 text-black":"bg-gray-600 text-white"}`}>{s.step}</div>
-                  <span className={`text-sm font-semibold ${s.step===1?"text-green-400":""}`}>{s.channel}</span>
-                  <span className="text-xs text-gray-400 ml-auto">{s.when}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="bg-white border border-gray-200 rounded-xl p-3">
-            <div className="text-xs font-semibold text-gray-500 mb-2">What I Actually See (check before generating)</div>
-            <div className="space-y-2">
-              <div>
-                <div className="text-xs text-gray-400 mb-1">Website Quality</div>
-                <div className="flex gap-2 flex-wrap">
-                  {["None","Bad","Basic","Decent","Good"].map(o=>(
-                    <button key={o} onClick={()=>onUpdate({...lead,manualWebsite:o})}
-                      className={`text-xs px-3 py-1.5 rounded-full border font-semibold ${lead.manualWebsite===o?"bg-black text-white border-black":"border-gray-200 text-gray-600"}`}>
-                      {o}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-400 mb-1">Instagram</div>
-                <div className="flex gap-2 flex-wrap">
-                  {["None","Inactive","Active","Very Active"].map(o=>(
-                    <button key={o} onClick={()=>onUpdate({...lead,manualInstagram:o})}
-                      className={`text-xs px-3 py-1.5 rounded-full border font-semibold ${lead.manualInstagram===o?"bg-black text-white border-black":"border-gray-200 text-gray-600"}`}>
-                      {o}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-400 mb-1">What's Missing (select all that apply)</div>
-                <div className="flex gap-2 flex-wrap">
-                  {["Online Booking","Online Ordering","Chat Widget","Loyalty App","Review System","Good Design","Mobile Friendly"].map(o=>(
-                    <button key={o} onClick={()=>{
-                      const current = lead.manualMissing||[];
-                      const updated = current.includes(o) ? current.filter(x=>x!==o) : [...current,o];
-                      onUpdate({...lead,manualMissing:updated});
-                    }}
-                      className={`text-xs px-3 py-1.5 rounded-full border font-semibold ${(lead.manualMissing||[]).includes(o)?"bg-black text-white border-black":"border-gray-200 text-gray-600"}`}>
-                      {o}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
+          {/* Sequence */}
+          <div className="bg-black text-white rounded-xl p-3">
+            <div className="text-xs text-gray-400 mb-2 font-semibold">Your Outreach Sequence</div>
+            {[
+              {step:1,channel:"Instagram DM",when:"Day 1 — Send today"},
+              {step:2,channel:"Call",when:"Day 1 — Call same day"},
+              {step:3,channel:"Email",when:"Day 3 — Auto-reminder set when DM marked sent"},
+              {step:4,channel:"Facebook DM",when:"Day 7 — If still no reply"},
+            ].map(s=><div key={s.step} className="flex items-center gap-2 mt-1.5">
+              <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black flex-shrink-0 ${s.step===1||s.step===2?"bg-green-400 text-black":"bg-gray-600 text-white"}`}>{s.step}</div>
+              <span className={`text-sm font-semibold ${s.step===1||s.step===2?"text-green-400":""}`}>{s.channel}</span>
+              <span className="text-xs text-gray-400 ml-auto">{s.when}</span>
+            </div>)}
           </div>
-          {!a&&<div className="bg-yellow-50 border border-yellow-100 rounded-xl p-3 text-sm text-yellow-800">Run AI analysis first to get your send sequence and better outreach.</div>}
 
-          {/* Contact history */}
-          {(lead.contactLog||[]).length > 0 && (
-            <div className="bg-white border border-gray-100 rounded-xl p-3">
-              <div className="text-xs font-semibold text-gray-400 mb-2">Contact History</div>
-              {(lead.contactLog||[]).map((log,i) => (
-                <div key={i} className="flex items-center gap-2 text-xs py-1.5 border-b border-gray-50 last:border-0">
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${log.type==="outreach"?"bg-blue-400":"bg-orange-400"}`}></div>
-                  <span className="font-semibold text-gray-700">{log.channel}</span>
-                  <span className="text-gray-400">{log.type==="outreach"?"First message":"Follow-up"}</span>
-                  <span className="text-gray-300 ml-auto">{log.date}</span>
-                </div>
-              ))}
-            </div>
-          )}
+          {(lead.contactLog||[]).length>0&&<div className="bg-white border border-gray-100 rounded-xl p-3">
+            <div className="text-xs font-semibold text-gray-400 mb-2">Contact History</div>
+            {(lead.contactLog||[]).map((log,i)=><div key={i} className="flex items-center gap-2 text-xs py-1.5 border-b border-gray-50 last:border-0">
+              <div className={`w-2 h-2 rounded-full flex-shrink-0 ${log.type==="outreach"?"bg-blue-400":"bg-orange-400"}`}></div>
+              <span className="font-semibold text-gray-700">{log.channel}</span>
+              <span className="text-gray-400">{log.type}</span>
+              <span className="text-gray-300 ml-auto">{log.date}</span>
+            </div>)}
+          </div>}
 
-          {channels.map((ch,idx)=><div key={ch.key} className={`border rounded-xl p-3 ${!ch.available?"opacity-50":"border-gray-100"}`}>
+          {channels.map(ch=><div key={ch.key} className={`border rounded-xl p-3 ${!ch.available?"opacity-50":"border-gray-100"}`}>
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold">{ch.label}</span>
-                {a?.bestChannel===ch.key&&<span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">Send First</span>}
-                {a?.backupChannel===ch.key&&!(lead.contactLog||[]).some(l=>l.channel===a.bestChannel)===false&&<span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-semibold">Send 2nd</span>}
+              <span className="text-sm font-bold">{ch.label}</span>
+              <div className="flex gap-1">
+                {ch.key==="Instagram DM"&&<span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">Send First</span>}
+                {ch.key==="Email"&&<span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-semibold">Day 3</span>}
+                {(lead.contactLog||[]).some(l=>l.channel===ch.key)&&<span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">Sent</span>}
               </div>
-              {(lead.contactLog||[]).some(l=>l.channel===ch.key) && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">Sent</span>}
             </div>
-            {lead.outreach?.[ch.key] ? <div className="space-y-2">
+            {lead.outreach?.[ch.key]?<div className="space-y-2">
               <div className="bg-white border border-gray-100 rounded-lg p-3 text-sm whitespace-pre-wrap leading-relaxed">{lead.outreach[ch.key]}</div>
               <div className="flex gap-2 flex-wrap">
                 <CopyBtn text={lead.outreach[ch.key]}/>
                 <button onClick={()=>doGen(ch.key)} disabled={!!genFor} className="text-xs text-blue-600 hover:underline disabled:opacity-50">Regenerate</button>
-                {!(lead.contactLog||[]).some(l=>l.channel===ch.key&&l.type==="outreach") && (
-                  <button onClick={()=>{
-                    const log = [...(lead.contactLog||[]), {channel:ch.key, date:new Date().toLocaleDateString(), type:"outreach"}];
-                    onUpdate({...lead, contactLog:log, status:"Contacted", followUpDate: new Date(Date.now()+6*24*60*60*1000).toISOString().slice(0,10)});
-                  }} className="text-xs bg-black text-white px-3 py-1.5 rounded-lg font-semibold">Mark as Sent</button>
+                {!(lead.contactLog||[]).some(l=>l.channel===ch.key&&l.type==="outreach")&&(
+                  <button onClick={()=>markSent(ch.key)} className="text-xs bg-black text-white px-3 py-1.5 rounded-lg font-semibold">Mark as Sent</button>
                 )}
               </div>
             </div>
-            : <button onClick={()=>doGen(ch.key)} disabled={!!genFor||!ch.available} className="w-full border border-dashed border-gray-200 hover:bg-gray-50 py-2.5 rounded-lg text-sm text-gray-500 disabled:opacity-40">{genFor===ch.key?"Writing...":`Generate ${ch.label} Message`}</button>}
+            :<button onClick={()=>doGen(ch.key)} disabled={!!genFor||!ch.available} className="w-full border border-dashed border-gray-200 hover:bg-gray-50 py-2.5 rounded-lg text-sm text-gray-500 disabled:opacity-40">{genFor===ch.key?"Writing...":`Generate ${ch.label} Message`}</button>}
           </div>)}
         </>}
+
+        {tab==="call" && <>
+          <div className="bg-black text-white rounded-xl p-3">
+            <div className="text-xs text-gray-400 mb-1">Call Script for</div>
+            <div className="font-black text-lg">{lead.name}</div>
+            <div className="text-xs text-gray-400 mt-1">Call same day as Instagram DM — Day 1</div>
+            {lead.phone && <a href={`tel:${lead.phone}`} className="mt-3 flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-xl font-bold text-sm w-fit">{lead.phone} — Tap to Call</a>}
+          </div>
+
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+            <div className="text-xs font-semibold text-emerald-700 mb-2">Opener</div>
+            <div className="text-sm leading-relaxed text-gray-700">{script.opener}</div>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+            <div className="text-xs font-semibold text-blue-700 mb-2">The Hook</div>
+            <div className="text-sm leading-relaxed text-gray-700">{script.hook}</div>
+          </div>
+
+          <div className="bg-white border border-gray-100 rounded-xl p-3">
+            <div className="text-xs font-semibold text-gray-500 mb-2">Handle Objections</div>
+            <div className="space-y-2">
+              {script.objections.map((obj,i)=><div key={i}>
+                <button onClick={()=>setShowScript(showScript===i?null:i)} className="w-full text-left text-sm font-semibold text-gray-700 py-2 border-b border-gray-50 flex items-center justify-between">
+                  <span>"{obj.q}"</span><span className="text-gray-400">{showScript===i?"▲":"▼"}</span>
+                </button>
+                {showScript===i&&<div className="text-sm text-gray-600 leading-relaxed mt-2 bg-gray-50 rounded-lg p-3">{obj.a}</div>}
+              </div>)}
+            </div>
+          </div>
+
+          <div className="bg-purple-50 border border-purple-200 rounded-xl p-3">
+            <div className="text-xs font-semibold text-purple-700 mb-2">Close</div>
+            <div className="text-sm leading-relaxed text-gray-700">{script.close}</div>
+          </div>
+
+          <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500 leading-relaxed">
+            <strong>Tips:</strong> Smile when you talk — they can hear it. If they say no, ask why. If they hang up, that's fine — move to the next one. 20-40 calls a day minimum. Volume wins.
+          </div>
+
+          <button onClick={()=>{
+            const log=[...(lead.contactLog||[]),{channel:"Phone Call",date:new Date().toLocaleDateString(),type:"outreach"}];
+            onUpdate({...lead,contactLog:log,status:"Contacted"});
+          }} className="w-full bg-black text-white py-2.5 rounded-xl font-bold text-sm">
+            Mark Call as Done
+          </button>
+        </>}
+
         {tab==="follow-up" && <>
           <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-500">Generate outreach first, then follow-ups.</div>
           {channels.filter(ch=>ch.available&&lead.outreach?.[ch.key]).map(ch=><div key={ch.key} className="border border-gray-100 rounded-xl p-3 space-y-2">
             <div className="text-sm font-bold">{ch.label} Follow-Up</div>
             <div className="bg-gray-50 rounded-lg p-2 text-xs text-gray-500 italic line-clamp-2">{lead.outreach[ch.key]}</div>
-            {lead.outreach?.[ch.key+"_fu"] ? <div className="space-y-2"><div className="bg-white border border-gray-100 rounded-lg p-3 text-sm whitespace-pre-wrap">{lead.outreach[ch.key+"_fu"]}</div><div className="flex gap-2 flex-wrap"><CopyBtn text={lead.outreach[ch.key+"_fu"]}/><button onClick={()=>doFu(ch.key)} disabled={!!genFuFor} className="text-xs text-blue-600 hover:underline disabled:opacity-50">Regenerate</button>
-                {!(lead.contactLog||[]).some(l=>l.channel===ch.key&&l.type==="followup") && (
-                  <button onClick={()=>{
-                    const log=[...(lead.contactLog||[]),{channel:ch.key,date:new Date().toLocaleDateString(),type:"followup"}];
-                    onUpdate({...lead,contactLog:log});
-                  }} className="text-xs bg-black text-white px-3 py-1.5 rounded-lg font-semibold">Mark as Sent</button>
-                )}
-              </div></div>
-            : <button onClick={()=>doFu(ch.key)} disabled={!!genFuFor} className="w-full border border-dashed border-gray-200 hover:bg-gray-50 py-2.5 rounded-lg text-sm text-gray-500 disabled:opacity-40">{genFuFor===ch.key?"Writing...":"Generate Follow-Up"}</button>}
+            {lead.outreach?.[ch.key+"_fu"]?<div className="space-y-2">
+              <div className="bg-white border border-gray-100 rounded-lg p-3 text-sm whitespace-pre-wrap">{lead.outreach[ch.key+"_fu"]}</div>
+              <div className="flex gap-2"><CopyBtn text={lead.outreach[ch.key+"_fu"]}/><button onClick={()=>doFu(ch.key)} disabled={!!genFuFor} className="text-xs text-blue-600 hover:underline disabled:opacity-50">Regenerate</button></div>
+            </div>
+            :<button onClick={()=>doFu(ch.key)} disabled={!!genFuFor} className="w-full border border-dashed border-gray-200 hover:bg-gray-50 py-2.5 rounded-lg text-sm text-gray-500 disabled:opacity-40">{genFuFor===ch.key?"Writing...":"Generate Follow-Up"}</button>}
           </div>)}
         </>}
+
         {tab==="upsell" && <>
           <div className="bg-black text-white rounded-xl p-3"><div className="text-xs text-gray-400 mb-1">Max monthly value if fully upsold</div><div className="text-2xl font-black">$850/mo</div><div className="text-xs text-gray-400 mt-1">Plus one-time website fee</div></div>
           {upsell.map(p=><div key={p.num} className={`border rounded-xl p-3 ${p.hot?"border-emerald-200 bg-emerald-50":"border-gray-100 bg-white"}`}>
@@ -370,11 +436,13 @@ function LeadModal({lead,onClose,onUpdate}) {
             <div className="text-xs text-blue-600 font-semibold">When: {p.when}</div>
           </div>)}
         </>}
+
         {tab==="notes" && <>
           <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Your notes..." className="w-full border border-gray-200 rounded-xl p-3 text-sm h-40 resize-none"/>
           <div><label className="text-xs font-semibold text-gray-400 block mb-1">Follow-Up Date</label><input type="date" value={lead.followUpDate||""} onChange={e=>onUpdate({...lead,followUpDate:e.target.value})} className="border border-gray-200 rounded-lg px-3 py-2 text-sm"/></div>
         </>}
       </div>
+
       <div className="p-4 border-t border-gray-100 flex gap-2 flex-shrink-0">
         <button onClick={()=>{onUpdate({...lead,status,userNotes:notes});onClose();}} className="flex-1 bg-black text-white py-2.5 rounded-xl font-bold text-sm">Save and Close</button>
         <button onClick={onClose} className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Discard</button>
@@ -384,21 +452,8 @@ function LeadModal({lead,onClose,onUpdate}) {
 }
 
 function App() {
-  const { leads, save, history, addHistory } = useStorage();
+  const {leads,save,history,addHistory}=useStorage();
   const [tab,setTab]=useState("search");
-
-  useEffect(() => {
-    requestNotifications();
-  }, []);
-
-  useEffect(() => {
-    if (leads.length === 0) return;
-    const today = new Date().toISOString().slice(0,10);
-    const due = leads.filter(l => l.followUpDate && l.followUpDate <= today && !["Closed/Won","Closed/Lost"].includes(l.status));
-    if (due.length > 0) {
-      sendNotification("DevLeads — Follow-ups due!", `You have ${due.length} lead${due.length>1?"s":""} to follow up on today.`);
-    }
-  }, [leads.length]);
   const [searching,setSearching]=useState(false);
   const [selected,setSelected]=useState(null);
   const [filter,setFilter]=useState("All");
@@ -408,40 +463,49 @@ function App() {
   const [ideas,setIdeas]=useState([]);
   const [loadingIdeas,setLoadingIdeas]=useState(false);
 
-  const addResults = (results) => {
-    const keys = new Set(leads.map(l=>(l.name+"__"+l.address).toLowerCase()));
-    const fresh = results.filter(r=>!keys.has((r.name+"__"+r.address).toLowerCase()));
+  useEffect(()=>{
+    if(!leads.length) return;
+    const today=new Date().toISOString().slice(0,10);
+    const due=leads.filter(l=>l.emailReminderDate&&l.emailReminderDate<=today&&l.status==="Contacted");
+    if(due.length>0) sendNotification("Zova Digital — Email reminders due!",`${due.length} lead${due.length>1?"s":""} ready for email follow-up today.`);
+  },[leads.length]);
+
+  const addResults=(results)=>{
+    const keys=new Set(leads.map(l=>(l.name+"__"+l.address).toLowerCase()));
+    const fresh=results.filter(r=>!keys.has((r.name+"__"+r.address).toLowerCase()));
     save([...fresh,...leads]);
   };
 
-  const handleSearch = async () => {
+  const handleSearch=async()=>{
     if(!niche||!city) return;
-    setSearching(true); setError("");
-    try { const r=await searchBusinesses(niche.trim(),city.trim()); addResults(r); addHistory(niche.trim()+" in "+city.trim()); setTab("leads"); }
-    catch(e) { setError("Search failed: "+e.message); }
+    setSearching(true);setError("");
+    try{const r=await searchBusinesses(niche.trim(),city.trim());addResults(r);addHistory(niche.trim()+" in "+city.trim());setTab("leads");}
+    catch(e){setError("Search failed: "+e.message);}
     setSearching(false);
   };
 
-  const handleGetIdeas = async () => { setLoadingIdeas(true); try{setIdeas(await getIdeas(history));}catch{setError("Could not load ideas.");} setLoadingIdeas(false); };
-  const updateLead = (u) => { save(leads.map(l=>l.id===u.id?u:l)); setSelected(u); };
-  const toggleCheck = (id) => save(leads.map(l=>l.id===id?{...l,checked:!l.checked}:l));
+  const handleGetIdeas=async()=>{setLoadingIdeas(true);try{setIdeas(await getIdeas(history));}catch{setError("Could not load ideas.");}setLoadingIdeas(false);};
+  const updateLead=(u)=>{save(leads.map(l=>l.id===u.id?u:l));setSelected(u);};
+  const toggleCheck=(id)=>save(leads.map(l=>l.id===id?{...l,checked:!l.checked}:l));
 
   const today=new Date().toISOString().slice(0,10);
   const followUps=leads.filter(l=>l.followUpDate&&l.followUpDate<=today&&!["Closed/Won","Closed/Lost"].includes(l.status));
+  const emailDue=leads.filter(l=>l.emailReminderDate&&l.emailReminderDate<=today&&l.status==="Contacted");
   const hotLeads=leads.filter(l=>(l.analysis?.score||0)>=70&&l.status==="New");
   const filtered=leads.filter(l=>filter==="All"||l.status===filter).sort((a,b)=>(b.analysis?.score||0)-(a.analysis?.score||0));
 
   return <div className="min-h-screen bg-gray-50">
     <div className="bg-white border-b border-gray-100 px-4 py-3 sticky top-0 z-40 flex items-center justify-between">
       <div><div className="font-black text-lg tracking-tight">Zova Digital</div><div className="text-xs text-gray-400">Lead Manager</div></div>
+      {emailDue.length>0&&<div className="text-xs bg-yellow-100 text-yellow-800 px-3 py-1.5 rounded-full font-semibold">{emailDue.length} email{emailDue.length>1?"s":""} due today</div>}
     </div>
 
     <div className="max-w-2xl mx-auto px-4 py-4 pb-24 space-y-3">
-      {tab==="search" && <>
+      {tab==="search"&&<>
         <div className="bg-white border border-gray-100 rounded-2xl p-4 space-y-3">
           <h2 className="font-black text-lg">Find New Leads</h2>
-          <div><label className="text-xs font-semibold text-gray-500 block mb-1">Business Type</label><input value={niche} onChange={e=>setNiche(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSearch()} placeholder="e.g. Nail salons, Ice cream shops" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"/></div>
-          <div><label className="text-xs font-semibold text-gray-500 block mb-1">City / Area</label><input value={city} onChange={e=>setCity(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSearch()} placeholder="e.g. Flushing NY, Brooklyn NY" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"/></div>
+          <div><label className="text-xs font-semibold text-gray-500 block mb-1">Business Type</label><input value={niche} onChange={e=>setNiche(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSearch()} placeholder="e.g. Nail salons, Restaurants, Ice cream shops" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"/></div>
+          <div><label className="text-xs font-semibold text-gray-500 block mb-1">City / Area</label><input value={city} onChange={e=>setCity(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSearch()} placeholder="e.g. Flushing Queens, Brooklyn NY" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"/></div>
           {error&&<div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">{error}</div>}
           <button onClick={handleSearch} disabled={searching||!niche||!city} className="w-full py-3 rounded-xl font-bold disabled:opacity-40 bg-black text-white">{searching?"Finding businesses...":"Find Businesses"}</button>
         </div>
@@ -470,8 +534,19 @@ function App() {
       {tab==="dashboard"&&<div className="space-y-4">
         <div><h1 className="text-2xl font-black">Today</h1><p className="text-sm text-gray-400">{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}</p></div>
         <div className="grid grid-cols-2 gap-3">
-          {[{label:"Hot leads",count:hotLeads.length,color:"bg-red-50 border-red-100"},{label:"Follow-ups due",count:followUps.length,color:"bg-yellow-50 border-yellow-100"},{label:"Interested",count:leads.filter(l=>l.status==="Interested").length,color:"bg-green-50 border-green-100"},{label:"Total leads",count:leads.length,color:"bg-gray-50 border-gray-100"}].map(s=><div key={s.label} className={`border rounded-2xl p-4 ${s.color}`}><div className="text-2xl font-black">{s.count}</div><div className="text-xs text-gray-500 mt-0.5">{s.label}</div></div>)}
+          {[
+            {label:"Hot leads",count:hotLeads.length,color:"bg-red-50 border-red-100"},
+            {label:"Emails due today",count:emailDue.length,color:emailDue.length>0?"bg-yellow-50 border-yellow-200":"bg-gray-50 border-gray-100"},
+            {label:"Follow-ups due",count:followUps.length,color:"bg-orange-50 border-orange-100"},
+            {label:"Interested",count:leads.filter(l=>l.status==="Interested").length,color:"bg-green-50 border-green-100"},
+            {label:"Contacted",count:leads.filter(l=>l.status==="Contacted").length,color:"bg-blue-50 border-blue-100"},
+            {label:"Total leads",count:leads.length,color:"bg-gray-50 border-gray-100"},
+          ].map(s=><div key={s.label} className={`border rounded-2xl p-4 ${s.color}`}><div className="text-2xl font-black">{s.count}</div><div className="text-xs text-gray-500 mt-0.5">{s.label}</div></div>)}
         </div>
+        {emailDue.length>0&&<div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4">
+          <div className="font-black text-sm mb-2">Email these leads today</div>
+          {emailDue.map(l=><div key={l.id} onClick={()=>setSelected(l)} className="text-sm py-1.5 border-b border-yellow-100 last:border-0 cursor-pointer hover:text-yellow-800"><span className="font-semibold">{l.name}</span> <span className="text-gray-400 text-xs">{l.address}</span></div>)}
+        </div>}
         {leads.length===0&&<div className="bg-gray-50 border border-gray-100 rounded-2xl p-8 text-center"><div className="font-black text-lg mb-1">Welcome to Zova Digital</div><div className="text-sm text-gray-400">Search for businesses to get started.</div></div>}
       </div>}
 
@@ -479,7 +554,12 @@ function App() {
         <h2 className="font-black text-lg">Follow-Ups</h2>
         {followUps.length===0?<div className="bg-white border border-gray-100 rounded-2xl p-8 text-center"><div className="font-bold mb-1">No follow-ups due</div><div className="text-sm text-gray-400">Set follow-up dates inside leads.</div></div>
         :followUps.map(l=><div key={l.id} onClick={()=>setSelected(l)} className="bg-white border border-gray-100 rounded-2xl p-4 cursor-pointer hover:shadow-md">
-          <div className="flex justify-between items-start gap-2"><div className="min-w-0"><div className="font-bold truncate">{l.name}</div><div className="text-xs text-gray-400 truncate">{l.address}</div><div className="text-xs text-red-500 font-semibold mt-1">Follow up: {l.followUpDate}</div></div><span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${STATUS_COLORS[l.status]}`}>{l.status}</span></div>
+          <div className="flex justify-between items-start gap-2">
+            <div className="min-w-0"><div className="font-bold truncate">{l.name}</div><div className="text-xs text-gray-400 truncate">{l.address}</div>
+            {l.emailReminderDate&&<div className={`text-xs font-semibold mt-1 ${l.emailReminderDate<=today?"text-yellow-600":"text-gray-400"}`}>Email: {l.emailReminderDate}</div>}
+            </div>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${STATUS_COLORS[l.status]}`}>{l.status}</span>
+          </div>
         </div>)}
       </div>}
     </div>
