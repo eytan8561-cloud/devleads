@@ -235,6 +235,7 @@ function LeadCard({ lead, onClick, onCheck }) {
             <span className={"font-semibold " + (noSite ? "text-red-500" : isGo3 ? "text-orange-500" : "text-gray-400")}>
               {noSite ? "No website" : isGo3 ? "Go3 template" : "Has website"}
             </span>
+            {lead.archived && <button onClick={e => { e.stopPropagation(); onCheck(lead.id, true); }} className="text-xs text-blue-500 underline">Unarchive</button>}
           </div>
           {lead.analysis && <div className="mt-2 text-xs bg-black text-white rounded-lg px-2 py-1.5 inline-block">{lead.analysis.pitchAngle}</div>}
         </div>
@@ -314,6 +315,7 @@ function LeadModal({ lead, onClose, onUpdate }) {
     const log = [...(lead.contactLog || []), { channel: ch, date: new Date().toLocaleDateString(), type: "outreach" }];
     const reminder = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     onUpdate({ ...lead, contactLog: log, status: "Contacted", followUpDate: reminder });
+    onClose();
   };
 
   const channels = [
@@ -702,11 +704,14 @@ function App() {
   const followUps = leads.filter(l => l.followUpDate && l.followUpDate <= today && !["Closed/Won", "Closed/Lost"].includes(l.status));
   const hotLeads = leads.filter(l => (l.analysis?.score || 0) >= 70 && l.status === "New");
 
+  const [currentSearch, setCurrentSearch] = useState("");
+
   const filtered = leads.filter(l => {
-    if (filter === "No Website") return !l.website || l.websiteQuality === "none";
-    if (filter === "All") return true;
-    return l.status === filter;
+    if (filter === "No Website") return !l.website && l.status === "New";
+    return l.status === "New";
   }).sort((a, b) => (b.analysis?.score || 0) - (a.analysis?.score || 0));
+
+  const contacted = leads.filter(l => l.status !== "New").sort((a, b) => new Date(b.addedAt) - new Date(a.addedAt));
 
   const addResults = (results) => {
     const keys = new Set(leads.map(l => (l.name + "__" + l.address).toLowerCase()));
@@ -721,6 +726,8 @@ function App() {
       const results = await searchBusinesses(niche.trim(), city.trim());
       addResults(results);
       addHistory(niche.trim() + " in " + city.trim());
+      setCurrentSearch(niche.trim() + " in " + city.trim());
+      setFilter("All");
       setTab("leads");
     } catch(e) { setError("Search failed: " + e.message); }
     setSearching(false);
@@ -733,7 +740,7 @@ function App() {
   };
 
   const updateLead = (u) => { save(leads.map(l => l.id === u.id ? u : l)); setSelected(u); };
-  const toggleCheck = (id) => save(leads.map(l => l.id === id ? { ...l, checked: !l.checked } : l));
+  const toggleCheck = (id, unarchive) => save(leads.map(l => l.id === id ? (unarchive ? { ...l, archived: false } : { ...l, checked: !l.checked }) : l));
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -812,11 +819,17 @@ function App() {
         {tab === "leads" && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="font-black text-lg">Leads</h2>
-              {leads.length > 0 && <button onClick={() => { if (confirm("Clear all leads?")) save([]); }} className="text-xs text-red-400">Clear all</button>}
+              <h2 className="font-black text-lg">New Leads</h2>
+              {filtered.length > 0 && (
+                <button onClick={() => {
+                  if (confirm("Remove all uncontacted leads? Your contacted leads stay in the Contacted tab.")) {
+                    save(leads.filter(l => l.status !== "New"));
+                  }
+                }} className="text-xs text-red-400 border border-red-200 px-2 py-1 rounded-lg">Clear</button>
+              )}
             </div>
             <div className="flex gap-2 overflow-x-auto pb-1">
-              {["All", "No Website", ...STATUSES].map(s => (
+              {["All", "No Website"].map(s => (
                 <button key={s} onClick={() => setFilter(s)}
                   className={"text-xs px-3 py-1.5 rounded-full whitespace-nowrap font-semibold flex-shrink-0 " + (filter === s ? "bg-black text-white" : s === "No Website" ? "bg-red-50 border border-red-200 text-red-700" : "bg-white border border-gray-200 text-gray-600")}>
                   {s}
@@ -825,10 +838,30 @@ function App() {
             </div>
             {filtered.length === 0 ? (
               <div className="bg-white border border-gray-100 rounded-2xl p-8 text-center">
-                <div className="font-bold mb-1">No leads here</div>
-                <div className="text-sm text-gray-400">{filter === "All" ? "Search for businesses to get started." : "No leads matching this filter."}</div>
+                <div className="font-bold mb-1">No new leads</div>
+                <div className="text-sm text-gray-400">Search for businesses to get started.</div>
               </div>
             ) : filtered.map(l => <LeadCard key={l.id} lead={l} onClick={() => setSelected(l)} onCheck={toggleCheck} />)}
+          </div>
+        )}
+
+        {tab === "contacted" && (
+          <div className="space-y-3">
+            <h2 className="font-black text-lg">Contacted ({contacted.length})</h2>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {["All", ...STATUSES.filter(s => s !== "New")].map(s => (
+                <button key={s} onClick={() => setFilter(s)}
+                  className={"text-xs px-3 py-1.5 rounded-full whitespace-nowrap font-semibold flex-shrink-0 " + (filter === s ? "bg-black text-white" : "bg-white border border-gray-200 text-gray-600")}>
+                  {s}
+                </button>
+              ))}
+            </div>
+            {contacted.filter(l => filter === "All" || l.status === filter).length === 0 ? (
+              <div className="bg-white border border-gray-100 rounded-2xl p-8 text-center">
+                <div className="font-bold mb-1">No contacted leads yet</div>
+                <div className="text-sm text-gray-400">Mark leads as sent to see them here.</div>
+              </div>
+            ) : contacted.filter(l => filter === "All" || l.status === filter).map(l => <LeadCard key={l.id} lead={l} onClick={() => setSelected(l)} onCheck={toggleCheck} />)}
           </div>
         )}
 
@@ -912,10 +945,10 @@ function App() {
         <div className="max-w-2xl mx-auto flex">
           {[
             { id: "search", label: "Search" },
-            { id: "leads", label: "Leads" + (leads.length ? " (" + leads.length + ")" : "") },
+            { id: "leads", label: "Leads" + (filtered.length ? " (" + filtered.length + ")" : "") },
+            { id: "contacted", label: "Contacted" + (contacted.length ? " (" + contacted.length + ")" : "") },
             { id: "dashboard", label: "Home" },
             { id: "notes", label: "Notes" },
-            { id: "followups", label: "Follow-Ups" },
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={"flex-1 py-3 text-xs font-semibold " + (tab === t.id ? "text-black" : "text-gray-400")}>
