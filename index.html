@@ -100,16 +100,42 @@ async function generateOutreach(biz, channel, analysis, lead) {
   const isGo3 = biz.isGo3 || (biz.website||"").includes("go3") || (lead.manualMissing||[]).includes("Go3 Template Site");
   const websiteStatus = lead.manualWebsite || (biz.website ? biz.websiteQuality : "none");
   const missing = (lead.manualMissing||[]).filter(m => m !== "Go3 Template Site").join(", ") || analysis?.biggestOpportunity || "better web presence";
+
   return await callClaude(
-    "You write outreach for Ethan at Zova Digital (NYC web/app developer). Sound like a real local person. No fake compliments. No generic openers. Return ONLY the message.",
-    `Write a ${channel} message. Length: ${short ? "2-3 sentences max" : "4-6 sentences"}.
-Business: ${biz.name} (${biz.category}), ${biz.address}
-Website (checked): ${isGo3 ? "Go3 Technology template site — basic and outdated" : websiteStatus}
-Instagram (checked): ${lead.manualInstagram||"unknown"}
-Missing: ${missing}
-AI opportunity: ${analysis?.aiAutomation||"not identified"}
-Pitch: ${isGo3 ? analysis?.go3Pitch || analysis?.pitchAngle : analysis?.pitchAngle||"needs better web presence"}
-${channel === "Email" ? "Start with: Subject: [subject]\n\n" : ""}Sign off as Ethan, Zova Digital.`, 600
+    `You are writing the single best cold outreach message Ethan from Zova Digital has ever sent. Ethan builds websites, apps, and AI automation for local businesses in NYC. 
+
+Your job: write a message so specific and insightful that the business owner feels like Ethan actually studied their business — not just looked it up. 
+
+Rules:
+- Sound like a real person, not a marketer
+- No "I came across your business" or fake compliments
+- Lead with something they probably DON'T know they're losing (not obvious problems)
+- Reference something specific about their actual situation
+- Make them feel slightly uncomfortable about what they're missing
+- End with a soft, low-pressure ask
+- ${short ? "Keep it to 2-3 sentences MAX — Instagram/Facebook DMs must be short" : "4-6 sentences for email"}
+- Return ONLY the message, nothing else`,
+    `Write a ${channel} message for this exact business:
+
+Business: ${biz.name} (${biz.category})
+Address: ${biz.address}
+Rating: ${biz.rating} stars, ${biz.reviewCount} reviews
+Website (I checked): ${isGo3 ? "Go3 Technology template — basic, no real features" : websiteStatus}
+Instagram (I checked): ${lead.manualInstagram || "unknown"}
+What they're missing: ${missing}
+
+AI Analysis:
+- Score: ${analysis?.score || "not analyzed"}/100
+- Pitch angle: ${analysis?.pitchAngle || "not analyzed"}
+- Biggest opportunity: ${analysis?.biggestOpportunity || "not analyzed"}
+- What they don't know they need: ${analysis?.aiAutomation || "not analyzed"}
+- Competitor angle: ${analysis?.competitorAngle || "not analyzed"}
+- Key problems: ${analysis?.problems?.join(", ") || "not analyzed"}
+${isGo3 ? `- Go3 pitch: ${analysis?.go3Pitch || "Go3 template upgrade"}` : ""}
+
+${channel === "Email" ? "Start with: Subject: [compelling subject line]\n\n" : ""}Sign off as Ethan, Zova Digital.
+
+Write the single best version of this message. Make it feel like homework was done.`, 700
   );
 }
 
