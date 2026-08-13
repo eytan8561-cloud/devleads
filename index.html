@@ -197,31 +197,29 @@ async function cloudSave(leads, history) {
 function useStorage() {
   const [leads, setLeads] = useState([]);
   const [history, setHistory] = useState([]);
-  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    // Load from cloud first, fall back to localStorage
+    // Load from localStorage immediately
+    try {
+      const l = localStorage.getItem("zova_v5_leads");
+      const h = localStorage.getItem("zova_v5_history");
+      if (l) setLeads(JSON.parse(l));
+      if (h) setHistory(JSON.parse(h));
+    } catch {}
+    // Then try cloud in background
     cloudLoad().then(data => {
       if (data?.leads?.length) {
         setLeads(data.leads);
         setHistory(data.history || []);
-      } else {
-        // Fall back to localStorage
-        try {
-          const l = localStorage.getItem("zova_v5_leads");
-          const h = localStorage.getItem("zova_v5_history");
-          if (l) setLeads(JSON.parse(l));
-          if (h) setHistory(JSON.parse(h));
-        } catch {}
+        try { localStorage.setItem("zova_v5_leads", JSON.stringify(data.leads)); } catch {}
+        try { localStorage.setItem("zova_v5_history", JSON.stringify(data.history || [])); } catch {}
       }
-      setLoaded(true);
-    });
+    }).catch(() => {});
     requestNotifications();
   }, []);
 
   const save = (nl) => {
     setLeads(nl);
-    // Save to both cloud and localStorage
     cloudSave(nl, history);
     try { localStorage.setItem("zova_v5_leads", JSON.stringify(nl)); } catch {}
   };
@@ -233,7 +231,7 @@ function useStorage() {
     try { localStorage.setItem("zova_v5_history", JSON.stringify(h)); } catch {}
   };
 
-  return { leads, save, history, addHistory, loaded };
+  return { leads, save, history, addHistory };
 }
 
 function ScoreRing({score}) {
@@ -634,10 +632,8 @@ function LeadModal({lead,onClose,onUpdate}) {
 }
 
 function App() {
-  const {leads,save,history,addHistory,loaded}=useStorage();
+  const {leads,save,history,addHistory}=useStorage();
   const [tab,setTab]=useState("search");
-
-  if (!loaded) return <div className="min-h-screen bg-gray-50 flex items-center justify-center"><div className="text-gray-400 text-sm">Loading your leads...</div></div>;
   const [searching,setSearching]=useState(false);
   const [selected,setSelected]=useState(null);
   const [filter,setFilter]=useState("All");
