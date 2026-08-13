@@ -175,7 +175,10 @@ const CLOUD_API = "https://zova-api.vercel.app/api/leads";
 
 async function cloudLoad() {
   try {
-    const r = await fetch(CLOUD_API);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const r = await fetch(CLOUD_API, { signal: controller.signal });
+    clearTimeout(timeout);
     const d = await r.json();
     return d;
   } catch { return null; }
