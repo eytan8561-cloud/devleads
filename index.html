@@ -250,6 +250,68 @@ function LeadCard({lead,onClick,onCheck}) {
   </div>;
 }
 
+function ScriptFixBox({section, lead, onUpdate, biz, analysis}) {
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const fix = async () => {
+    if (!input.trim()) return;
+    setLoading(true);
+    try {
+      const current = lead.customScript?.[section] || "";
+      const text = await callClaude(
+        "You fix call scripts for Ethan at Zova Digital. Make only the change asked. Keep the same format and tone. Return ONLY the fixed script section.",
+        `Business: ${biz.name} (${biz.category})\nCurrent ${section}:\n"${current}"\n\nWhat to fix: ${input}\n\nReturn ONLY the fixed version.`, 400
+      );
+      onUpdate({...lead, customScript: {...(lead.customScript||{}), [section]: text.trim()}});
+      setInput("");
+    } catch(e) { alert("Failed: " + e.message); }
+    setLoading(false);
+  };
+  return <div className="flex gap-2 mt-2">
+    <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&fix()}
+      placeholder={`Fix this section — e.g. "make it shorter" or "they asked about pricing first"`}
+      className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs"/>
+    <button onClick={fix} disabled={loading||!input.trim()} className="text-xs bg-purple-600 text-white px-3 py-1.5 rounded-lg font-semibold disabled:opacity-40 whitespace-nowrap">
+      {loading?"...":"Fix"}
+    </button>
+  </div>;
+}
+
+function LiveQA({lead, analysis}) {
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [loading, setLoading] = useState(false);
+  const ask = async () => {
+    if (!question.trim()) return;
+    setLoading(true);
+    try {
+      const text = await callClaude(
+        "You are a real-time call coach for Ethan at Zova Digital. Give a SHORT, natural, conversational response Ethan can say RIGHT NOW on the phone. Max 2-3 sentences. Sound human not salesy.",
+        `Ethan is on a call with ${lead.name} (${lead.category}).
+Business situation: ${lead.website ? "has website ("+lead.websiteQuality+")" : "no website"}, ${lead.reviewCount} reviews.
+Pitch angle: ${analysis?.pitchAngle || "better web presence"}
+
+They just said/asked: "${question}"
+
+What should Ethan say RIGHT NOW? Keep it natural and brief.`, 300
+      );
+      setAnswer(text.trim());
+    } catch(e) { alert("Failed: " + e.message); }
+    setLoading(false);
+  };
+  return <div className="space-y-2">
+    <div className="flex gap-2">
+      <input value={question} onChange={e=>setQuestion(e.target.value)} onKeyDown={e=>e.key==="Enter"&&ask()}
+        placeholder='Type what they just said — e.g. "how long does it take?" or "we tried this before"'
+        className="flex-1 border border-yellow-200 bg-white rounded-lg px-3 py-2 text-xs"/>
+      <button onClick={ask} disabled={loading||!question.trim()} className="text-xs bg-yellow-600 text-white px-3 py-2 rounded-lg font-semibold disabled:opacity-40 whitespace-nowrap">
+        {loading?"...":"What to say"}
+      </button>
+    </div>
+    {answer && <div className="bg-white border border-yellow-200 rounded-lg p-3 text-sm leading-relaxed text-gray-800 font-medium">"{answer}"</div>}
+  </div>;
+}
+
 function LeadModal({lead,onClose,onUpdate}) {
   const [tab,setTab]=useState("overview");
   const [analyzing,setAnalyzing]=useState(false);
@@ -453,13 +515,17 @@ function LeadModal({lead,onClose,onUpdate}) {
           </div>
 
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
-            <div className="text-xs font-semibold text-emerald-700 mb-2">Opener</div>
-            <div className="text-sm leading-relaxed text-gray-700">{script.opener}</div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-semibold text-emerald-700">Opener</div>
+            </div>
+            <div className="text-sm leading-relaxed text-gray-700 whitespace-pre-wrap">{lead.customScript?.opener || script.opener}</div>
+            <ScriptFixBox section="opener" lead={lead} onUpdate={onUpdate} biz={lead} analysis={a}/>
           </div>
 
           <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
             <div className="text-xs font-semibold text-blue-700 mb-2">The Hook</div>
-            <div className="text-sm leading-relaxed text-gray-700">{script.hook}</div>
+            <div className="text-sm leading-relaxed text-gray-700 whitespace-pre-wrap">{lead.customScript?.hook || script.hook}</div>
+            <ScriptFixBox section="hook" lead={lead} onUpdate={onUpdate} biz={lead} analysis={a}/>
           </div>
 
           <div className="bg-white border border-gray-100 rounded-xl p-3">
@@ -469,18 +535,25 @@ function LeadModal({lead,onClose,onUpdate}) {
                 <button onClick={()=>setShowScript(showScript===i?null:i)} className="w-full text-left text-sm font-semibold text-gray-700 py-2 border-b border-gray-50 flex items-center justify-between">
                   <span>"{obj.q}"</span><span className="text-gray-400">{showScript===i?"▲":"▼"}</span>
                 </button>
-                {showScript===i&&<div className="text-sm text-gray-600 leading-relaxed mt-2 bg-gray-50 rounded-lg p-3">{obj.a}</div>}
+                {showScript===i&&<div className="text-sm text-gray-600 leading-relaxed mt-2 bg-gray-50 rounded-lg p-3">{(lead.customScript?.objections||{})[i] || obj.a}</div>}
               </div>)}
             </div>
           </div>
 
           <div className="bg-purple-50 border border-purple-200 rounded-xl p-3">
             <div className="text-xs font-semibold text-purple-700 mb-2">Close</div>
-            <div className="text-sm leading-relaxed text-gray-700">{script.close}</div>
+            <div className="text-sm leading-relaxed text-gray-700">{lead.customScript?.close || script.close}</div>
+            <ScriptFixBox section="close" lead={lead} onUpdate={onUpdate} biz={lead} analysis={a}/>
+          </div>
+
+          {/* Live Q&A — type what they just asked */}
+          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3">
+            <div className="text-xs font-semibold text-yellow-700 mb-2">Live Q&A — They just asked something unexpected?</div>
+            <LiveQA lead={lead} analysis={a}/>
           </div>
 
           <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500 leading-relaxed">
-            <strong>Tips:</strong> Smile when you talk — they can hear it. If they say no, ask why. If they hang up, that's fine — move to the next one. 20-40 calls a day minimum. Volume wins.
+            <strong>Tips:</strong> Smile when you talk — they can hear it. If they say no, ask why. If they hang up, move to the next one. 20-40 calls a day minimum. Volume wins.
           </div>
 
           <button onClick={()=>{
