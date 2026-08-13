@@ -24,20 +24,21 @@ function getCallScript(biz, analysis) {
   const opportunity = analysis?.pitchAngle || "better web presence";
 
   return {
-    opener: `"Hi, is this ${biz.name}? Hey, my name is Ethan — I'm a web developer based in New York City. I'm not trying to sell you anything right now, I just had a quick question — do you have like 30 seconds?"`,
+    opener: `Step 1 — When someone answers:\n"Hi there, quick question — is the owner or whoever handles the business decisions around today?"\n\nIf they say the owner isn't there:\n"No problem at all — when's usually a good time to catch them? I just had something quick I wanted to run by them about the business."`,
     hook: noWebsite
-      ? `"So I was actually looking for [their type] places in your area online, and I noticed you guys don't have a website yet. I build sites specifically for local businesses like yours, and I've seen places go from basically invisible online to booking out weeks in advance. I'd love to show you what that could look like for ${biz.name}."`
+      ? `Step 2 — When you get the owner:\n"Hey, my name's Ethan — I'll keep this short. I was looking up ${biz.category} spots in your area online and noticed ${biz.name} doesn't have a website yet. I build sites specifically for local businesses and I've helped spots just like yours go from invisible on Google to getting new clients every week. I'm not here to pitch you a package — I just want to show you what it could look like for your place specifically. Would that be worth two minutes of your time?"`
       : hasGo3
-      ? `"So I checked out your website — looks like it's on Go3, right? I actually specialize in rebuilding those into proper custom sites with real online booking and way better Google visibility. I'd love to show you the difference."`
-      : `"So I checked out ${biz.name} online — ${opportunity}. I build custom websites and apps for local businesses and I think I could genuinely help. Would you be open to a quick 10-minute call this week to see what that could look like?"`,
+      ? `Step 2 — When you get the owner:\n"Hey, my name's Ethan — real quick. I checked out your website and it looks like it's running on Go3. I specialize in rebuilding those into fully custom sites with real booking systems and way better Google ranking. The difference is pretty dramatic — I'd love to just show you an example. Takes two minutes to look at."`
+      : `Step 2 — When you get the owner:\n"Hey, my name's Ethan — I'll be quick. I was looking at ${biz.name} online and noticed ${opportunity}. I build custom websites and apps for local businesses and I think there's a real opportunity here. I'm not trying to sell you anything right now — I just want to show you one example of what I've built and you can tell me if it's relevant. Is that fair?"`,
     objections: [
-      { q: "We already have a website", a: `"That's great — honestly most of the businesses I work with have one, it just isn't doing much for them. Is it bringing in new clients or mainly just sitting there? I could take a quick look and tell you if there's anything I'd actually change."` },
-      { q: "We're not interested", a: `"Totally fair — can I ask, is it more about timing or budget? I work with a lot of small businesses so I try to be flexible. If it's not the right time I can follow up in a few months, no pressure at all."` },
-      { q: "Who are you again?", a: `"My name's Ethan, I run Zova Digital — we build websites and apps for local businesses in New York. I actually work with a few spots in your area already. I'm not cold calling everyone, I specifically reached out because I noticed something with ${biz.name}'s online presence."` },
-      { q: "How much does it cost?", a: `"It really depends on what you need — I don't have one set price because every business is different. But I'd rather show you what it looks like first and then we can talk numbers. Can I send you a quick example of what I've built?"` },
-      { q: "Call back later / busy", a: `"Of course — when's a better time? I can call you back today or tomorrow, whatever works for you."` },
+      { q: "We already have a website", a: `"I actually saw it — that's why I called. It looks decent, but is it actually bringing you new customers or is it more just sitting there? Most business sites I look at aren't doing much for Google search or converting visitors into bookings. I could take a quick look and tell you honestly if there's anything worth changing."` },
+      { q: "We're not interested", a: `"Totally understand — can I ask real quick, is it more about the timing or is it that this just isn't a priority right now? I work with a lot of small businesses and I'm pretty flexible. If it's not the right time I can follow up down the road, no pressure."` },
+      { q: "Who are you again?", a: `"My name's Ethan, I run a company called Zova Digital — we build websites, apps, and AI automation for local businesses. I'm based in New York. I'm not cold calling a list of random places — I specifically looked up ${biz.name} because I saw something I thought I could genuinely help with."` },
+      { q: "How much does it cost?", a: `"Honestly it depends on what you actually need — I don't have one set price because every business is different. But I'd rather show you what the work looks like first before we even talk numbers. If it's not a fit, I'll tell you. Can I send you a quick example?"` },
+      { q: "Call back later / busy right now", a: `"Of course, I'll let you go. What's a good time to call back — today later or tomorrow morning? I just want five minutes, that's it."` },
+      { q: "We handle it ourselves", a: `"Respect that — out of curiosity, are you getting consistent new customers from Google search right now? Because that's usually where the gap is. If you are, honestly you're good. If not, might be worth a two minute look."` },
     ],
-    close: `"Awesome — can I send you a quick example of what I'd build for ${biz.name}? Takes 2 seconds to look at and then you'll know if it's worth a conversation. What's the best email or number to send it to?"`,
+    close: `"Here's what I'll do — let me send you a quick example of what I'd build for ${biz.name}. Takes literally two seconds to look at. What's the best email or number to send it to? If you like it we can talk, if not no hard feelings."`,
   };
 }
 
@@ -112,7 +113,12 @@ ${channel === "Email" ? "Start with: Subject: [subject]\n\n" : ""}Sign off as Et
   );
 }
 
-async function generateFollowUp(biz, channel, prev) {
+async function fixMessage(original, instruction, biz, channel) {
+  return await callClaude(
+    "You fix outreach messages for Ethan at Zova Digital. Make only the change the user asks for. Keep everything else the same. Return ONLY the fixed message.",
+    `Original ${channel} message:\n"${original}"\n\nWhat to fix: ${instruction}\n\nBusiness: ${biz.name} (${biz.category})\nReturn ONLY the fixed message.`, 500
+  );
+}
   return await callClaude(
     "Write a follow-up for Ethan at Zova Digital. 1-3 sentences. Human, not desperate.",
     `Follow-up ${channel}. Business: ${biz.name}. Previous: "${prev.slice(0,200)}". Sign as Ethan, Zova Digital. Return ONLY the message.`, 250
@@ -254,7 +260,19 @@ function LeadModal({lead,onClose,onUpdate}) {
   const isGo3 = lead.isGo3 || (lead.website||"").includes("go3") || (lead.manualMissing||[]).includes("Go3 Template Site");
   const script = getCallScript(lead, a);
 
-  const doAnalyze=async()=>{setAnalyzing(true);try{onUpdate({...lead,analysis:await analyzeLead(lead)});}catch(e){alert("Failed: "+e.message);}setAnalyzing(false);};
+  const [fixInput, setFixInput] = useState({});
+  const [fixing, setFixing] = useState(null);
+
+  const doFix = async (ch) => {
+    if (!fixInput[ch]?.trim()) return;
+    setFixing(ch);
+    try {
+      const fixed = await fixMessage(lead.outreach[ch], fixInput[ch], lead, ch);
+      onUpdate({...lead, outreach: {...lead.outreach, [ch]: fixed}});
+      setFixInput(prev => ({...prev, [ch]: ""}));
+    } catch(e) { alert("Failed: " + e.message); }
+    setFixing(null);
+  };
   const doGen=async(ch)=>{setGenFor(ch);try{onUpdate({...lead,outreach:{...lead.outreach,[ch]:await generateOutreach(lead,ch,a,lead)}});}catch(e){alert("Failed: "+e.message);}setGenFor(null);};
   const doFu=async(ch)=>{setGenFuFor(ch);try{onUpdate({...lead,outreach:{...lead.outreach,[ch+"_fu"]:await generateFollowUp(lead,ch,lead.outreach?.[ch]||"")}});}catch(e){alert("Failed: "+e.message);}setGenFuFor(null);};
 
@@ -405,6 +423,18 @@ function LeadModal({lead,onClose,onUpdate}) {
                 {!(lead.contactLog||[]).some(l=>l.channel===ch.key&&l.type==="outreach")&&(
                   <button onClick={()=>markSent(ch.key)} className="text-xs bg-black text-white px-3 py-1.5 rounded-lg font-semibold">Mark as Sent</button>
                 )}
+              </div>
+              <div className="flex gap-2 mt-1">
+                <input
+                  value={fixInput[ch.key]||""}
+                  onChange={e=>setFixInput(prev=>({...prev,[ch.key]:e.target.value}))}
+                  onKeyDown={e=>e.key==="Enter"&&doFix(ch.key)}
+                  placeholder='Tell AI what to fix — e.g. "they already have online ordering" or "make it shorter"'
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs"
+                />
+                <button onClick={()=>doFix(ch.key)} disabled={fixing===ch.key||!fixInput[ch.key]?.trim()} className="text-xs bg-purple-600 text-white px-3 py-1.5 rounded-lg font-semibold disabled:opacity-40 whitespace-nowrap">
+                  {fixing===ch.key?"Fixing...":"Fix it"}
+                </button>
               </div>
             </div>
             :<button onClick={()=>doGen(ch.key)} disabled={!!genFor||!ch.available} className="w-full border border-dashed border-gray-200 hover:bg-gray-50 py-2.5 rounded-lg text-sm text-gray-500 disabled:opacity-40">{genFor===ch.key?"Writing...":`Generate ${ch.label} Message`}</button>}
