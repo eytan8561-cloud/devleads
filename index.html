@@ -119,6 +119,8 @@ async function fixMessage(original, instruction, biz, channel) {
     `Original ${channel} message:\n"${original}"\n\nWhat to fix: ${instruction}\n\nBusiness: ${biz.name} (${biz.category})\nReturn ONLY the fixed message.`, 500
   );
 }
+
+async function generateFollowUp(biz, channel, prev) {
   return await callClaude(
     "Write a follow-up for Ethan at Zova Digital. 1-3 sentences. Human, not desperate.",
     `Follow-up ${channel}. Business: ${biz.name}. Previous: "${prev.slice(0,200)}". Sign as Ethan, Zova Digital. Return ONLY the message.`, 250
@@ -273,6 +275,7 @@ function LeadModal({lead,onClose,onUpdate}) {
     } catch(e) { alert("Failed: " + e.message); }
     setFixing(null);
   };
+  const doAnalyze=async()=>{setAnalyzing(true);try{onUpdate({...lead,analysis:await analyzeLead(lead)});}catch(e){alert("Failed: "+e.message);}setAnalyzing(false);};
   const doGen=async(ch)=>{setGenFor(ch);try{onUpdate({...lead,outreach:{...lead.outreach,[ch]:await generateOutreach(lead,ch,a,lead)}});}catch(e){alert("Failed: "+e.message);}setGenFor(null);};
   const doFu=async(ch)=>{setGenFuFor(ch);try{onUpdate({...lead,outreach:{...lead.outreach,[ch+"_fu"]:await generateFollowUp(lead,ch,lead.outreach?.[ch]||"")}});}catch(e){alert("Failed: "+e.message);}setGenFuFor(null);};
 
