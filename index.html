@@ -171,42 +171,66 @@ function importLeads(file, currentLeads, onSave) {
   reader.readAsText(file);
 }
 
+const CLOUD_API = "https://zova-api.vercel.app/api/leads";
+
+async function cloudLoad() {
+  try {
+    const r = await fetch(CLOUD_API);
+    const d = await r.json();
+    return d;
+  } catch { return null; }
+}
+
+async function cloudSave(leads, history) {
+  try {
+    await fetch(CLOUD_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leads, history })
+    });
+  } catch(e) { console.error("Cloud save failed:", e); }
+}
+
 function useStorage() {
   const [leads, setLeads] = useState([]);
   const [history, setHistory] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
   useEffect(() => {
-    try {
-      // Migrate from all previous keys
-      const allKeys = ["zova_v5_leads","zova_v4_leads","zova_leads_v1","devleads_leads","zova_leads"];
-      let allLeads = [];
-      const seenIds = new Set();
-      for (const key of allKeys) {
+    // Load from cloud first, fall back to localStorage
+    cloudLoad().then(data => {
+      if (data?.leads?.length) {
+        setLeads(data.leads);
+        setHistory(data.history || []);
+      } else {
+        // Fall back to localStorage
         try {
-          const raw = localStorage.getItem(key);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            for (const lead of parsed) {
-              if (!seenIds.has(lead.id)) {
-                seenIds.add(lead.id);
-                allLeads.push(lead);
-              }
-            }
-          }
+          const l = localStorage.getItem("zova_v5_leads");
+          const h = localStorage.getItem("zova_v5_history");
+          if (l) setLeads(JSON.parse(l));
+          if (h) setHistory(JSON.parse(h));
         } catch {}
       }
-      if (allLeads.length > 0) {
-        setLeads(allLeads);
-        localStorage.setItem("zova_v5_leads", JSON.stringify(allLeads));
-      }
-
-      const h = localStorage.getItem("zova_v5_history") || localStorage.getItem("zova_v4_history") || localStorage.getItem("zova_history_v1");
-      if (h) setHistory(JSON.parse(h));
-    } catch {}
+      setLoaded(true);
+    });
     requestNotifications();
   }, []);
-  const save = (nl) => { setLeads(nl); try{localStorage.setItem("zova_v5_leads",JSON.stringify(nl));}catch{} };
-  const addHistory = (q) => { const h=[q,...history.filter(x=>x!==q)].slice(0,50); setHistory(h); try{localStorage.setItem("zova_v5_history",JSON.stringify(h));}catch{} };
-  return { leads, save, history, addHistory };
+
+  const save = (nl) => {
+    setLeads(nl);
+    // Save to both cloud and localStorage
+    cloudSave(nl, history);
+    try { localStorage.setItem("zova_v5_leads", JSON.stringify(nl)); } catch {}
+  };
+
+  const addHistory = (q) => {
+    const h = [q, ...history.filter(x => x !== q)].slice(0, 50);
+    setHistory(h);
+    cloudSave(leads, h);
+    try { localStorage.setItem("zova_v5_history", JSON.stringify(h)); } catch {}
+  };
+
+  return { leads, save, history, addHistory, loaded };
 }
 
 function ScoreRing({score}) {
@@ -607,8 +631,10 @@ function LeadModal({lead,onClose,onUpdate}) {
 }
 
 function App() {
-  const {leads,save,history,addHistory}=useStorage();
+  const {leads,save,history,addHistory,loaded}=useStorage();
   const [tab,setTab]=useState("search");
+
+  if (!loaded) return <div className="min-h-screen bg-gray-50 flex items-center justify-center"><div className="text-gray-400 text-sm">Loading your leads...</div></div>;
   const [searching,setSearching]=useState(false);
   const [selected,setSelected]=useState(null);
   const [filter,setFilter]=useState("All");
